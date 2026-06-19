@@ -1,0 +1,35 @@
+{
+  "entities": {
+    "WiredBoatImage": {
+      "title": "Wired Boat Image",
+      "description": "Manually wired direct image URLs for a specific boat name.",
+      "type": "object",
+      "properties": {
+        "boatName": {
+          "type": "string",
+          "description": "The exact boat name matching the app state."
+        },
+        "urls": {
+          "type": "array",
+          "description": "List of direct image link URLs"
+        },
+        "updatedBy": {
+          "type": "string",
+          "description": "The user ID who updated these links"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The server timestamp when updated"
+        }
+      },
+      "required": ["boatName", "urls", "updatedBy", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "wiredBoatImages/{boatId}": {
+      "schema": "WiredBoatImage",
+      "description": "Maps a boat (using a safe boat name ID) to its custom wired images list."
+    }
+  }
+}
