@@ -3,11 +3,12 @@ import { useStore, Boat, Cabin } from '../store';
 import { 
   Settings2, Eye, EyeOff, Trash2, Plus, RefreshCw, CheckCircle, 
   Wifi, Database, ShieldAlert, Sparkles, X, AlertCircle,
-  Lock, Unlock, Key, Image, Search, Mail, Link, Check, Loader2, FileText
+  Lock, Unlock, Key, Image, Search, Mail, Link, Check, Loader2, FileText,
+  Download, Upload
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
-import { doc, getDoc, setDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, onSnapshot, serverTimestamp, collection, getDocs, writeBatch } from 'firebase/firestore';
 import { db, auth, getWhitelistedEmails, saveWhitelistedEmails } from '../lib/firebase';
 
 interface AppConfiguratorProps {
@@ -71,6 +72,8 @@ export const AppConfigurator: React.FC<AppConfiguratorProps> = ({ isOpen, onClos
   const [companyTab, setCompanyTab] = useState<'KIC' | 'LEBALIBLOG'>('KIC');
   const [manualImageUrl, setManualImageUrl] = useState('');
   const [batchImageUrls, setBatchImageUrls] = useState('');
+  const [isExporting, setIsExporting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   const [wiredUrls, setWiredUrls] = useState<string[]>([]);
   const [loadingWired, setLoadingWired] = useState(false);
   const [wiringError, setWiringError] = useState<string | null>(null);
@@ -321,6 +324,50 @@ export const AppConfigurator: React.FC<AppConfiguratorProps> = ({ isOpen, onClos
     setBoats(updatedBoats, fileName || 'Active Database Workspace');
   };
 
+  // Helper to execute setDoc with a safety timeout to avoid infinite buffering if client is offline or firebase blocks the write
+  const setDocWithTimeout = async (docRef: any, data: any, timeoutMs = 4000) => {
+    let timer: any;
+    const timeoutPromise = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error(language === 'FR' 
+          ? "Délai de connexion dépassé. Sauvegarde effectuée uniquement sur cet appareil pour l'instant." 
+          : "Cloud sync timeout. Changes saved locally on this device, but syncing with other devices may be delayed until a stronger connection is established."
+        ));
+      }, timeoutMs);
+    });
+
+    try {
+      await Promise.race([
+        setDoc(docRef, data),
+        timeoutPromise
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  // Helper to commit a batch with a safety timeout to prevent hanging
+  const commitBatchWithTimeout = async (batch: any, timeoutMs = 6000) => {
+    let timer: any;
+    const timeoutPromise = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error(language === 'FR'
+          ? "La synchronisation Cloud a expiré. Les données sont enregistrées localement sur cet appareil."
+          : "Cloud synchronization matching timed out. Changes saved locally on this device first."
+        ));
+      }, timeoutMs);
+    });
+
+    try {
+      await Promise.race([
+        batch.commit(),
+        timeoutPromise
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
   // Save wired images for choice boat & company tab
   const saveUrlsArray = async (urlsToSave: string[]) => {
     if (!wiredBoatName) return;
@@ -331,20 +378,33 @@ export const AppConfigurator: React.FC<AppConfiguratorProps> = ({ isOpen, onClos
     const docId = getBoatDocId(wiredBoatName, companyTab);
     const docRef = doc(db, 'wiredBoatImages', docId);
 
-    // Save to localStorage as redundancy
+    // Save to localStorage as redundancy (immediate local update!)
     localStorage.setItem(`wired_images_${docId}`, JSON.stringify(urlsToSave));
 
+    if (!auth.currentUser) {
+      setWiringSuccess(language === 'FR'
+        ? "Enregistré sur cet appareil uniquement. Connectez-vous avec Google pour l'étape 1 afin d'activer la synchronisation."
+        : "Saved locally on this device only. Please sign in with Google in Step 1 to enable cloud synchronization with other accounts."
+      );
+      setLoadingWired(false);
+      return;
+    }
+
     try {
-      await setDoc(docRef, {
+      await setDocWithTimeout(docRef, {
         boatName: wiredBoatName,
         urls: urlsToSave,
-        updatedBy: auth.currentUser?.uid || 'anonymous_operator',
+        updatedBy: auth.currentUser.uid,
         updatedAt: serverTimestamp()
       });
       setWiringSuccess(language === 'FR' ? "Liaisons d'images enregistrées avec succès !" : "Custom image links saved successfully!");
     } catch (err: any) {
-      console.error(err);
-      setWiringError(language === 'FR' ? "Erreur cloud, liaison enregistrée uniquement sur cet appareil" : "Cloud write permission denied, backup saved locally only.");
+      console.error("Firestore cloud backup failed/timed out:", err);
+      // Still show warning rather than crash, because the localStorage backup already succeeded!
+      setWiringError(language === 'FR' 
+        ? "Enregistré localement uniquement. (Vérifiez votre connexion internet ou connectez-vous dans l'Étape 1 pour synchroniser)" 
+        : `Saved on this device only. (${err.message || 'Check connection or verify operator login inside Step 1'})`
+      );
     } finally {
       setLoadingWired(false);
     }
@@ -460,6 +520,256 @@ export const AppConfigurator: React.FC<AppConfiguratorProps> = ({ isOpen, onClos
 
     // Re-run scan instantly to clear from missing list!
     alert(`Success! Wired link for ${cabinName} to ${company}.`);
+  };
+
+  // Helper inside AppConfigurator to parse multi-boat customized txt image mapping database
+  const parseWiredTxt = (text: string) => {
+    const lines = text.split('\n');
+    const results: { boatName: string; company: 'KIC' | 'LEBALIBLOG'; urls: string[] }[] = [];
+    
+    let currentBoat: string | null = null;
+    let currentCompany: 'KIC' | 'LEBALIBLOG' = 'KIC';
+    let currentUrls: string[] = [];
+
+    const commitCurrent = () => {
+      if (currentBoat) {
+        // Find case-insensitive canonical match in active boats
+        const matchedBoat = boats.find(b => b.name.toLowerCase() === currentBoat!.toLowerCase());
+        const finalBoatName = matchedBoat ? matchedBoat.name : currentBoat;
+        
+        const existing = results.find(
+          r => r.boatName.toLowerCase() === finalBoatName.toLowerCase() && r.company === currentCompany
+        );
+        if (existing) {
+          existing.urls = Array.from(new Set([...existing.urls, ...currentUrls]));
+        } else {
+          results.push({
+            boatName: finalBoatName,
+            company: currentCompany,
+            urls: [...currentUrls]
+          });
+        }
+      }
+      currentUrls = [];
+    };
+
+    for (let line of lines) {
+      line = line.trim();
+      if (!line || line.startsWith('#') || line.startsWith('//')) {
+        continue;
+      }
+
+      // Check if it has an explicit tag: e.g. [KIC: Boat Name] or [LBB: Boat Name]
+      const tagMatch = line.match(/^\[(KIC|LBB|LEBALIBLOG)\s*:\s*(.+)\]$/i);
+      if (tagMatch) {
+        commitCurrent();
+        const scope = tagMatch[1].toUpperCase();
+        currentCompany = (scope === 'LBB' || scope === 'LEBALIBLOG') ? 'LEBALIBLOG' : 'KIC';
+        currentBoat = tagMatch[2].trim();
+        continue;
+      }
+
+      if (line.startsWith('http://') || line.startsWith('https://')) {
+        if (currentBoat) {
+          currentUrls.push(line);
+        }
+      } else {
+        // It's a new boat name
+        commitCurrent();
+        currentBoat = line;
+        currentCompany = 'KIC'; // default company when implicit
+      }
+    }
+    commitCurrent();
+    return results;
+  };
+
+  // Export ALL Firestore custom wired images into organized TXT structure
+  const handleExportWiredTxt = async () => {
+    setIsExporting(true);
+    setWiringError(null);
+    setWiringSuccess(null);
+    try {
+      const qSnap = await getDocs(collection(db, 'wiredBoatImages'));
+      let outputText = `# === WIRED IMAGES DATABASE TXT BACKUP ===\n`;
+      outputText += `# Exported on: ${new Date().toISOString()}\n`;
+      outputText += `# You can edit this file to add or remove missing images, then upload it to refresh the database.\n`;
+      outputText += `# Format:\n`;
+      outputText += `#   [KIC: Boat Name] or [LBB: Boat Name]\n`;
+      outputText += `#   followed by direct image link URLs (one per line). Blank lines separate boats.\n\n`;
+
+      const wiredMap: Record<string, string[]> = {};
+      qSnap.forEach((docSnap) => {
+        wiredMap[docSnap.id] = docSnap.data().urls || [];
+      });
+
+      const handledKeys = new Set<string>();
+
+      if (boats && boats.length > 0) {
+        outputText += `# === ACTIVE FLEET BOAT TEMPLATES ===\n`;
+        outputText += `# Simply paste your image link URLs right below the corresponding boat header block.\n\n`;
+
+        boats.forEach((boat) => {
+          const kicKey = getBoatDocId(boat.name, 'KIC');
+          const lbbKey = getBoatDocId(boat.name, 'LEBALIBLOG');
+
+          const kicUrls = wiredMap[kicKey] || [];
+          const lbbUrls = wiredMap[lbbKey] || [];
+
+          handledKeys.add(kicKey);
+          handledKeys.add(lbbKey);
+
+          // KIC entry
+          outputText += `[KIC: ${boat.name}]\n`;
+          if (kicUrls.length > 0) {
+            kicUrls.forEach((url: string) => {
+              outputText += `${url}\n`;
+            });
+          } else {
+            outputText += `# (Paste KIC image URLs for ${boat.name} here, one per line)\n`;
+          }
+          outputText += `\n`;
+
+          // LBB entry
+          outputText += `[LBB: ${boat.name}]\n`;
+          if (lbbUrls.length > 0) {
+            lbbUrls.forEach((url: string) => {
+              outputText += `${url}\n`;
+            });
+          } else {
+            outputText += `# (Paste LEBALIBLOG image URLs for ${boat.name} here, one per line)\n`;
+          }
+          outputText += `\n`;
+        });
+      }
+
+      // Output any legacy or other items in Firestore that were not in the active fleet workspace
+      let hasLegacy = false;
+      qSnap.forEach((docSnap) => {
+        const id = docSnap.id;
+        if (!handledKeys.has(id)) {
+          const data = docSnap.data();
+          const boatName = data.boatName || id.replace(/^(kic_|lbb_)/, '').replace(/_/g, ' ');
+          const urls = data.urls || [];
+          if (urls.length > 0) {
+            if (!hasLegacy) {
+              outputText += `# === OTHER STORED WIRED IMAGES ===\n\n`;
+              hasLegacy = true;
+            }
+            const isKIC = id.startsWith('kic_');
+            outputText += `[${isKIC ? 'KIC' : 'LBB'}: ${boatName}]\n`;
+            urls.forEach((url: string) => {
+              outputText += `${url}\n`;
+            });
+            outputText += `\n`;
+          }
+        }
+      });
+
+      const blob = new Blob([outputText], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `wired_images_database_${new Date().toISOString().slice(0, 10)}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      setWiringSuccess(language === 'FR' ? "Base de données exportée avec succès sous forme de fichier TXT !" : "Wired images database successfully exported as TXT file!");
+    } catch (err: any) {
+      console.error(err);
+      setWiringError(language === 'FR' ? "L'exportation a échoué" : `Export failed: ${err.message || err}`);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // Upload, parse, and refresh/overwrite Firestore custom image sync collections
+  const handleImportWiredTxt = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!auth.currentUser) {
+      const proceed = window.confirm(
+        language === 'FR'
+          ? "⚠️ Vous n'êtes pas connecté à Google (Étape 1).\n\nL'importation se fera uniquement LOCALEMENT sur cet ordinateur et ne sera PAS partagée avec d'autres comptes ou appareils.\n\nSouhaitez-vous continuer tout de même ?"
+          : "⚠️ You are not signed in to Google (Step 1).\n\nThe database will be uploaded LOCALLY to this browser only and will NOT synchronize with other accounts or devices.\n\nDo you want to continue anyway?"
+      );
+      if (!proceed) {
+        event.target.value = '';
+        return;
+      }
+    }
+
+    setIsImporting(true);
+    setWiringError(null);
+    setWiringSuccess(null);
+
+    try {
+      const reader = new FileReader();
+      const text = await new Promise<string>((resolve, reject) => {
+        reader.onload = (e) => resolve(e.target?.result as string || '');
+        reader.onerror = (e) => reject(new Error("File reading failed"));
+        reader.readAsText(file);
+      });
+
+      const parsedResults = parseWiredTxt(text);
+      if (parsedResults.length === 0) {
+        throw new Error(language === 'FR' ? "Aucune liaison d'image valide trouvée à importer dans le fichier." : "No valid image links or boat blocks parsed from the file.");
+      }
+
+      // Save each to local localStorage immediately for absolute snappiness
+      for (const item of parsedResults) {
+        const docId = getBoatDocId(item.boatName, item.company);
+        localStorage.setItem(`wired_images_${docId}`, JSON.stringify(item.urls));
+      }
+
+      // If user is not logged in, we are completed locally and do not trigger slow write attempts
+      if (!auth.currentUser) {
+        setWiringSuccess(
+          language === 'FR'
+            ? `Restauration locale complétée ! ${parsedResults.length} bateaux restaurés directement sur ce navigateur.`
+            : `Local recovery complete! All ${parsedResults.length} vessel mappings updated on this device. Sign in with Google in Step 1 to sync with other accounts.`
+        );
+        return;
+      }
+
+      // Perform a batch operation which is a single fast request for all documents!
+      const batchOp = writeBatch(db);
+      for (const item of parsedResults) {
+        const docId = getBoatDocId(item.boatName, item.company);
+        const docRef = doc(db, 'wiredBoatImages', docId);
+        batchOp.set(docRef, {
+          boatName: item.boatName,
+          urls: item.urls,
+          updatedBy: auth.currentUser.uid,
+          updatedAt: serverTimestamp()
+        });
+      }
+
+      try {
+        await commitBatchWithTimeout(batchOp, 6000);
+        setWiringSuccess(
+          language === 'FR' 
+            ? `Importation complétée ! ${parsedResults.length} bateaux mis à jour sur Firestore.` 
+            : `Database refreshed successfully! Synced ${parsedResults.length} vessel image templates directly to Firestore.`
+        );
+      } catch (cloudErr: any) {
+        console.error("Firestore batch commit failed/timed out:", cloudErr);
+        setWiringSuccess(
+          language === 'FR'
+            ? `Restauration locale complétée (${parsedResults.length} bateaux enregistrés sur cet appareil). Remarque : La synchronisation Cloud a échoué (${cloudErr.message || "Veuillez vérifier votre session"}).`
+            : `Local recovery complete! All ${parsedResults.length} vessel mappings updated on this device. Note: Cloud synchronization failed (${cloudErr.message || "Please verify your session"}).`
+        );
+      }
+    } catch (err: any) {
+      console.error(err);
+      setWiringError(language === 'FR' ? "L'importation a échoué" : `Import failure: ${err.message || err}`);
+    } finally {
+      setIsImporting(false);
+      event.target.value = '';
+    }
   };
 
   // Whitelist CRUD
@@ -1067,6 +1377,86 @@ export const AppConfigurator: React.FC<AppConfiguratorProps> = ({ isOpen, onClos
                         ))}
                       </div>
                     )}
+                  </div>
+
+                  {/* TEXT DATABASE EXPORT & IMPORT UTILITIES */}
+                  <div className="p-4 border border-border/40 rounded-2xl bg-muted/5 space-y-3 pt-3.5">
+                    <div className="flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-primary shrink-0" />
+                      <div className="space-y-0.5 min-w-0">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-foreground block">
+                          {language === 'FR' ? "Base de Données Textuelle (TXT) des Images" : "Text Database (TXT) Backup & Restore"}
+                        </span>
+                        <p className="text-[9px] text-muted-foreground leading-normal">
+                          {language === 'FR' 
+                            ? "Téléchargez ou restaurez l'intégralité des connecteurs d'images de votre flotte via un simple fichier texte (.txt)."
+                            : "Export or overwrite all vessel custom images across KIC & LBB in a single structured text file database."
+                          }
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1.5">
+                      {/* Export Button */}
+                      <button
+                        type="button"
+                        onClick={handleExportWiredTxt}
+                        disabled={isExporting}
+                        className="flex items-center justify-center gap-2 px-3.5 py-2 hover:border-foreground/20 hover:bg-muted/10 text-foreground text-xs font-bold rounded-xl cursor-pointer transition-all border border-border disabled:opacity-50"
+                      >
+                        {isExporting ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
+                        ) : (
+                          <Download className="w-3.5 h-3.5 text-emerald-500" />
+                        )}
+                        <span>
+                          {language === 'FR' ? "Télécharger .txt" : "Download TXT Backup"}
+                        </span>
+                      </button>
+
+                      {/* Import Label acting as Button */}
+                      <label className="flex items-center justify-center gap-2 px-3.5 py-2 hover:border-foreground/20 hover:bg-muted/10 text-foreground text-xs font-bold rounded-xl cursor-pointer transition-all border border-border disabled:opacity-50">
+                        {isImporting ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
+                        ) : (
+                          <Upload className="w-3.5 h-3.5 text-indigo-500" />
+                        )}
+                        <span>
+                          {language === 'FR' ? "Importer / Recharger .txt" : "Upload & Sync TXT"}
+                        </span>
+                        <input
+                          type="file"
+                          accept=".txt"
+                          onChange={handleImportWiredTxt}
+                          disabled={isImporting}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+
+                    {/* Proactive Help Tips */}
+                    <div className="mt-3.5 p-3 rounded-xl bg-primary/5 border border-primary/10 space-y-2 text-[10px] text-muted-foreground leading-relaxed">
+                      <div className="flex gap-2">
+                        <span className="text-amber-500 font-bold shrink-0">💡</span>
+                        <p>
+                          <strong>{language === 'FR' ? "Bateaux automatiques :" : "Perfect/Working Images:"}</strong>{" "}
+                          {language === 'FR' 
+                            ? "Si un bateau comme Angelica affiche déjà ses images correctement, laissez ses lignes vides ou avec les commentaires par défaut dans le fichier TXT. Le système continuera de charger ses images via la synchronisation automatique de Google Drive." 
+                            : "If a boat like Angelica already displays its images perfectly (via automatic Google Drive sync), you do not need to add links for it. Keep it blank or commented out in the TXT file. The system will continue to match pictures automatically."
+                          }
+                        </p>
+                      </div>
+                      <div className="flex gap-2 border-t border-border/40 pt-2">
+                        <span className="text-emerald-500 font-bold shrink-0">📋</span>
+                        <p>
+                          <strong>{language === 'FR' ? "Flotte active complète :" : "Import Schedule First:"}</strong>{" "}
+                          {language === 'FR' 
+                            ? "Pour intégrer tous les bateaux de votre base de données dans le modèle de fichier TXT, assurez-vous de charger d'abord votre feuille de calcul (Google Sheet ou fichier Excel) afin que l'espace de travail puisse détecter l'ensemble de la flotte active." 
+                            : "To export a template with every single boat in your list, connect your Google Sheet or import your Excel/CSV boat schedule first. Once loaded, the export utility will retrieve all active fleet names in the TXT template."
+                          }
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}

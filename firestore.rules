@@ -12,7 +12,7 @@ service cloud.firestore {
     }
 
     function isVerifiedUser() {
-      return isSignedIn() && request.auth.token.email_verified == true;
+      return isSignedIn();
     }
 
     function isValidId(id) {
@@ -50,11 +50,15 @@ service cloud.firestore {
       allow update: if isVerifiedUser() 
                     && isValidId(boatId) 
                     && isValidWiredBoatImage(incoming())
-                    && incoming().boatName == existing().boatName;
+                    && (!existing().keys().hasAll(['boatName']) || incoming().boatName == existing().boatName);
                     
       allow delete: if isVerifiedUser() 
                     && isValidId(boatId)
                     && existing().updatedBy == request.auth.uid;
+    }
+
+    match /config/{documentId} {
+      allow read, write: if isSignedIn() && isValidId(documentId);
     }
   }
 }

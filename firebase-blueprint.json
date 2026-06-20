@@ -24,12 +24,31 @@
         }
       },
       "required": ["boatName", "urls", "updatedBy", "updatedAt"]
+    },
+    "Whitelist": {
+      "title": "Operator Whitelist",
+      "description": "Whitelist of Gmail addresses authorized to use the app.",
+      "type": "object",
+      "properties": {
+        "emails": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of whitelisted email addresses."
+        }
+      },
+      "required": ["emails"]
     }
   },
   "firestore": {
     "wiredBoatImages/{boatId}": {
       "schema": "WiredBoatImage",
       "description": "Maps a boat (using a safe boat name ID) to its custom wired images list."
+    },
+    "config/{documentId}": {
+      "schema": "Whitelist",
+      "description": "System configurations such as the operator email whitelist."
     }
   }
 }

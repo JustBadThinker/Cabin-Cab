@@ -203,30 +203,49 @@ export const MediaGallery: React.FC = () => {
     const boatId = getBoatDocId(selectedBoatName, activeFolderTab);
     const localKey = `wired_images_${boatId}`;
 
-    // 1. Instantly save to local cache so the visual content updating has absolute zero latency
+    // 1. Instantly save to local cache for maximum snappy responsiveness in the immediate browser session
     try {
       localStorage.setItem(localKey, JSON.stringify(urlsToSave));
       setWiredUrls(urlsToSave);
     } catch (_) {}
 
-    // Close the form panel instantly so there is no buffering/waiting spinner blocks for the user
-    setShowWiredForm(false);
-    setIsSavingWired(false);
-
-    // 2. If signed in, perform background sync to Firestore asynchronously
+    // 2. If signed in, perform the cloud save and AWAIT feedback.
+    // We enforce an 8-second timeout so the user never gets stuck buffering forever if Firestore is offline.
     if (auth.currentUser) {
+      const currentUserId = auth.currentUser.uid;
       try {
         const docRef = doc(db, 'wiredBoatImages', boatId);
-        await setDoc(docRef, {
-          boatName: selectedBoatName,
-          urls: urlsToSave,
-          updatedBy: auth.currentUser.uid,
-          updatedAt: serverTimestamp()
-        });
-        console.log("Background cloud save succeeded.");
+
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Cloud Sync Timed Out (8s). Check your internet connection or try again.")), 8000)
+        );
+
+        await Promise.race([
+          setDoc(docRef, {
+            boatName: selectedBoatName,
+            urls: urlsToSave,
+            updatedBy: currentUserId,
+            updatedAt: serverTimestamp()
+          }),
+          timeoutPromise
+        ]);
+
+        console.log("Cloud save succeeded for boatId:", boatId);
+        
+        // Success: Clear any error, close the panel smoothly
+        setWiredError(null);
+        setShowWiredForm(false);
       } catch (err: any) {
-        console.warn("Background cloud sync registered offline. Saved locally in this device:", err);
+        console.error("Cloud save failed:", err);
+        const errMsg = err?.message || String(err);
+        setWiredError(`Cloud Sync Interrupted: ${errMsg}. We saved your changes locally on this browser, but others won't see them until you save successfully. Check your login/network.`);
+      } finally {
+        setIsSavingWired(false);
       }
+    } else {
+      // If signed out, save to local cache only and close the panel naturally
+      setShowWiredForm(false);
+      setIsSavingWired(false);
     }
   };
 
@@ -460,6 +479,12 @@ export const MediaGallery: React.FC = () => {
   const selectedCabinIds = activeTab.selectedCabinIds || [];
 
   const displayedFiles = combinedFiles.filter((file) => {
+    // Custom wired images (starting with http) always bypass the filename-based cabin filter
+    // because they are manually linked to this boat by the operator.
+    if (file.id.startsWith('http://') || file.id.startsWith('https://')) {
+      return true;
+    }
+
     if (activeTab.mode !== 'CABIN' || !selectedCabinIds || selectedCabinIds.length === 0 || !enableCabinFilter) {
       return true;
     }
@@ -594,203 +619,6 @@ export const MediaGallery: React.FC = () => {
 
   const toggleListExpand = (id: string) => {
     setExpandedListIds(prev => ({ ...prev, [id]: !prev[id] }));
-  };
-
-  const renderWiredForm = () => {
-    const handleAddSingle = () => {
-      const trimmed = singleUrlInput.trim();
-      if (!trimmed) return;
-      if (!trimmed.startsWith('http')) {
-        setWiredError("Please enter a valid URL starting with http:// or https://");
-        return;
-      }
-      setWiredError(null);
-      if (!pendingUrls.includes(trimmed)) {
-        setPendingUrls(prev => [...prev, trimmed]);
-      }
-      setSingleUrlInput('');
-    };
-
-    const handleAddBatch = () => {
-      const text = batchTextareaInput.trim();
-      if (!text) return;
-      
-      const links = text
-        .split(/[\n,;]+/)
-        .map(link => link.trim())
-        .filter(link => link.length > 0 && link.startsWith('http'));
-
-      if (links.length === 0) {
-        setWiredError("No valid URLs starting with http:// or https:// were found in your paste.");
-        return;
-      }
-
-      setWiredError(null);
-      setPendingUrls(prev => {
-        const next = [...prev];
-        links.forEach(l => {
-          if (!next.includes(l)) {
-            next.push(l);
-          }
-        });
-        return next;
-      });
-      setBatchTextareaInput('');
-    };
-
-    const removePendingUrl = (index: number) => {
-      setPendingUrls(prev => prev.filter((_, i) => i !== index));
-    };
-
-    const clearAllPendingUrls = () => {
-      setPendingUrls([]);
-    };
-
-    return (
-      <div className="p-5 border border-border bg-card/60 backdrop-blur-md rounded-2xl space-y-5">
-        <div className="flex items-center justify-between border-b border-border/60 pb-3">
-          <div className="space-y-0.5">
-            <h4 className="text-xs font-bold text-foreground font-sans uppercase tracking-wider">Wire Images to {selectedBoatName}</h4>
-            <p className="text-[10px] text-muted-foreground">Specify direct URLs to show in the media gallery. Changes sync automatically across devices when saved.</p>
-          </div>
-          {pendingUrls.length > 0 && (
-            <button
-              onClick={clearAllPendingUrls}
-              className="text-[9px] font-black uppercase tracking-wider text-destructive hover:text-destructive/85 flex items-center gap-1 cursor-pointer transition-colors"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              Clear All
-            </button>
-          )}
-        </div>
-
-        {wiredError && (
-          <div className="p-3 text-[10px] rounded-lg border border-destructive/10 bg-destructive/5 text-destructive flex items-center gap-2">
-            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-            <span>{wiredError}</span>
-          </div>
-        )}
-
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground block">
-              1-by-1 Manual Link
-            </label>
-            <div className="flex gap-2 items-center">
-              <input
-                type="text"
-                value={singleUrlInput}
-                onChange={(e) => setSingleUrlInput(e.target.value)}
-                placeholder="https://example.com/image.jpg"
-                className="flex-1 min-w-0 bg-background/50 border border-border text-xs rounded-xl px-3 py-2 text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleAddSingle();
-                  }
-                }}
-              />
-              <button
-                onClick={handleAddSingle}
-                className="bg-primary hover:bg-primary/95 text-primary-foreground px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-colors cursor-pointer whitespace-nowrap shrink-0"
-              >
-                Add Link
-              </button>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground block">
-              Batch Paste Links
-            </label>
-            <div className="flex gap-2 items-end">
-              <textarea
-                value={batchTextareaInput}
-                onChange={(e) => setBatchTextareaInput(e.target.value)}
-                placeholder="Paste multiple URLs here (separated by newlines, commas or semicolons)"
-                rows={2}
-                className="flex-1 min-w-0 bg-background/50 border border-border text-xs rounded-xl px-3 py-2 text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary custom-scrollbar"
-              />
-              <button
-                onClick={handleAddBatch}
-                className="bg-muted hover:bg-muted/80 text-muted-foreground border border-border px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-colors cursor-pointer whitespace-nowrap shrink-0"
-              >
-                Add Batch
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground block">
-            Wired Links Preview ({pendingUrls.length})
-          </span>
-          {pendingUrls.length === 0 ? (
-            <div className="p-4 text-center border border-dashed border-border/60 rounded-xl bg-muted/5">
-              <p className="text-[10px] text-muted-foreground">No image links wired yet.</p>
-            </div>
-          ) : (
-            <div className="max-h-[160px] overflow-y-auto space-y-1.5 pr-1.5 custom-scrollbar">
-              {pendingUrls.map((url, idx) => (
-                <div key={idx} className="flex items-center justify-between gap-3 p-2 bg-muted/20 border border-border/40 rounded-xl text-[10px] transition-all hover:bg-muted/30">
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                    <span className="text-muted-foreground font-mono font-medium shrink-0">{idx + 1}.</span>
-                    <span className="text-foreground truncate font-mono select-all font-medium leading-none">{url}</span>
-                  </div>
-                  <button
-                    onClick={() => removePendingUrl(idx)}
-                    className="p-1 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive shrink-0 cursor-pointer transition-colors"
-                    title="Remove Link"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-t border-border/60 pt-4 gap-4">
-          <div className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-            <p className="text-[9px] text-muted-foreground">
-              {auth.currentUser 
-                ? `Logged in. Saving will persist these details.`
-                : "Sign in with Google inside Step 1 to sync across devices."
-              }
-            </p>
-          </div>
-          <div className="flex gap-2 justify-end">
-            <button
-              onClick={() => {
-                setShowWiredForm(false);
-                setWiredError(null);
-              }}
-              className="px-4 py-2 text-xs font-black uppercase tracking-wider rounded-xl border border-border hover:bg-muted transition-colors cursor-pointer whitespace-nowrap shrink-0"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={() => handleSaveWiredImages(pendingUrls)}
-              disabled={isSavingWired}
-              className="px-4 py-2 bg-primary hover:bg-primary/95 disabled:bg-primary/50 text-primary-foreground text-xs font-black uppercase tracking-wider rounded-xl transition-all shadow-sm cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0"
-            >
-              {isSavingWired ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Check className="w-3.5 h-3.5" />
-                  Save Wired Images
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
   };
 
   const scanBoatDriveImages = async () => {
@@ -1096,41 +924,8 @@ export const MediaGallery: React.FC = () => {
               </span>
             </div>
           </button>
-
-          {/* Add Missing Image Button */}
-          <button
-            onClick={() => {
-              setShowWiredForm(!showWiredForm);
-              setPendingUrls(wiredUrls);
-            }}
-            className={cn(
-              "h-9 w-9 hover:w-auto hover:px-3.5 rounded-full flex items-center justify-center transition-all duration-305 ease-in-out cursor-pointer border overflow-hidden group/btn relative",
-              showWiredForm 
-                ? "bg-primary text-primary-foreground border-primary shadow-xs"
-                : "bg-background border-border text-muted-foreground hover:text-foreground hover:border-border/80"
-            )}
-            title="Add Custom / Wired Image Link"
-          >
-            {showWiredForm ? (
-              <X className="w-4 h-4 text-primary shrink-0 transition-transform group-hover/btn:rotate-90 duration-300" />
-            ) : (
-              <Plus className="w-4 h-4 text-primary shrink-0 transition-transform group-hover/btn:rotate-90 duration-300" />
-            )}
-            <div className="flex items-center max-w-0 group-hover/btn:max-w-[200px] opacity-0 group-hover/btn:opacity-100 transition-all duration-305 ease-in-out overflow-hidden group-hover/btn:ml-1.5 whitespace-nowrap shrink-0">
-              <span className="text-[10px] font-black uppercase tracking-wider">
-                {showWiredForm ? 'Hide Customize' : 'add missing image'}
-              </span>
-              {wiredUrls.length > 0 && (
-                <span className="ml-1.5 bg-muted-foreground/20 text-foreground px-1.5 py-0.5 rounded-full text-[9px] font-bold shrink-0">
-                  {wiredUrls.length}
-                </span>
-              )}
-            </div>
-          </button>
         </div>
       </div>
-
-      {showWiredForm && renderWiredForm()}
 
       {/* Content Area */}
       {loadingImages ? (
@@ -1159,21 +954,9 @@ export const MediaGallery: React.FC = () => {
             <p className="text-xs font-medium text-muted-foreground">
               No matching images found for &ldquo;{selectedBoatName}&rdquo; inside this directory.
             </p>
-            <p className="text-[9px] text-muted-foreground/75 mt-1 mb-4">
+            <p className="text-[9px] text-muted-foreground/75 mt-1">
               Files should contain the keyword &ldquo;{cleanBoatKeyword}&rdquo; to display in this list.
             </p>
-            {!showWiredForm && (
-              <button
-                onClick={() => {
-                  setShowWiredForm(true);
-                  setPendingUrls(wiredUrls);
-                }}
-                className="px-4 py-2 bg-primary hover:bg-primary/95 text-primary-foreground text-xs font-black uppercase tracking-wider rounded-xl transition-all shadow-sm cursor-pointer inline-flex items-center gap-1.5"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Wire Custom Images Now
-              </button>
-            )}
           </div>
         </div>
       ) : displayedFiles.length === 0 ? (
