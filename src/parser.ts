@@ -152,6 +152,34 @@ export function processWorkbookData(jsonData: any[][]): Boat[] {
   const boatsMap = new Map<string, { cabins: Cabin[], charterFr?: string, charterEng?: string }>();
   let lastBoatName = '';
 
+  // Helper to check if a string is a template text format
+  const isTemplateText = (text: string): boolean => {
+    const val = text.toLowerCase();
+    const hasTemplateKeywords = 
+      val.includes('itinéraire') || 
+      val.includes('itinerary') || 
+      val.includes('dates :') || 
+      val.includes('dates:') ||
+      val.includes('room:') ||
+      val.includes('room :') ||
+      val.includes('chambre:') ||
+      val.includes('chambre :') ||
+      val.includes('cabin:') ||
+      val.includes('cabin :') ||
+      val.includes('details:') ||
+      val.includes('details :') ||
+      val.includes('détails:') ||
+      val.includes('détails :') ||
+      val.includes('boat:') ||
+      val.includes('boat :') ||
+      val.includes('bateau:') ||
+      val.includes('bateau :') ||
+      val.includes('➔') ||
+      val.includes('→');
+
+    return hasTemplateKeywords && val.length > 25;
+  };
+
   // Helper to extract cabin name and link from a template string
   const extractFromTemplate = (text: string) => {
     let cabinName = '';
@@ -165,7 +193,7 @@ export function processWorkbookData(jsonData: any[][]): Boat[] {
     const findField = (labels: string[], content: string) => {
       const labelPattern = labels.join('|');
       // Look for the label, then capture everything until the next known label or end of string
-      const nextLabels = '(?:Itinéraire|Itinerary|Dates|Départ|Departure|Start|Bateau|Boat|Chambre|Room|Cabine|Détails|Details|Detail|Lien|Link|Schedule|Freq)';
+      const nextLabels = '(?:Itinéraire|Itinerary|Dates|Départ|Departure|Start|End|Bateau|Boat|Chambre|Room|Cabine|Détails|Details|Detail|Lien|Link|Schedule|Freq)';
       // Use a more robust regex that handles the end of the string better
       const regex = new RegExp(`(?:${labelPattern})\\s*[:\\-]?\\s*(.+?)(?=\\s*${nextLabels}\\s*[:\\-]|$)`, 'i');
       const match = content.replace(/\r?\n/g, ' ').match(regex);
@@ -173,6 +201,16 @@ export function processWorkbookData(jsonData: any[][]): Boat[] {
     };
 
     itinerary = findField(['Itinéraire', 'Itinerary'], text);
+    if (!itinerary) {
+      // If no explicit itinerary label is present, extract the leading text before any known label
+      const nextLabels = '(?:Itinéraire|Itinerary|Dates|Départ|Departure|Start|End|Bateau|Boat|Chambre|Room|Cabine|Détails|Details|Detail|Lien|Link|Schedule|Freq)';
+      const regexStart = new RegExp(`^(.+?)(?=\\s*${nextLabels}\\s*[:\\-])`, 'i');
+      const startMatch = text.replace(/\r?\n/g, ' ').match(regexStart);
+      if (startMatch) {
+         itinerary = startMatch[1].trim();
+      }
+    }
+
     departure = findField(['Départ', 'Departure', 'Start'], text);
     schedule = findField(['Schedule', 'Freq', 'Horaire'], text);
     boat = findField(['Bateau', 'Boat'], text);
@@ -215,7 +253,7 @@ export function processWorkbookData(jsonData: any[][]): Boat[] {
 
     if (cabinEngIdx !== -1) {
       const engVal = String(row[cabinEngIdx] || '').trim();
-      if (engVal.toLowerCase().includes('itinerary') || engVal.toLowerCase().includes('itinéraire')) {
+      if (isTemplateText(engVal)) {
         const extracted = extractFromTemplate(engVal);
         cabinNameEng = extracted.cabinName;
         // Prefer template link if dedicated column link is invalid
@@ -261,7 +299,7 @@ export function processWorkbookData(jsonData: any[][]): Boat[] {
     }
 
     // If cabinName looks like a template, extract from it
-    if (cabinName.toLowerCase().includes('itinéraire') || cabinName.toLowerCase().includes('itinerary')) {
+    if (isTemplateText(cabinName)) {
       const extracted = extractFromTemplate(cabinName);
       if (extracted.cabinName) {
         cabinName = extracted.cabinName;

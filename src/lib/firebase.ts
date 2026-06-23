@@ -7,7 +7,7 @@ const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = initializeFirestore(app, {
   localCache: memoryLocalCache()
-}, firebaseConfig.firestoreDatabaseId || '(default)');
+}, (firebaseConfig as any).firestoreDatabaseId || '(default)');
 
 async function testConnection() {
   try {
