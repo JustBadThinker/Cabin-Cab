@@ -101,6 +101,8 @@ interface AppState {
   lebaliblogFiles: DriveFile[];
   loadingImages: boolean;
   imagesError: string | null;
+  livePreviewEnabled: boolean;
+  setLivePreviewEnabled: (enabled: boolean) => void;
   googleUser: User | null;
   googleToken: string | null;
   setGoogleUser: (user: User | null, token: string | null) => void;
@@ -213,6 +215,8 @@ export const useStore = create<AppState>()(
       lebaliblogFiles: [],
       loadingImages: false,
       imagesError: null,
+      livePreviewEnabled: false,
+      setLivePreviewEnabled: (enabled) => set({ livePreviewEnabled: enabled }),
       googleUser: null,
       googleToken: null,
       setGoogleUser: (user, token) => set({ googleUser: user, googleToken: token }),

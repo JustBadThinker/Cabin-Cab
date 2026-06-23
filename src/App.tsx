@@ -12,6 +12,7 @@ import { Notepad } from './components/Notepad';
 import { ThemeToggle } from './components/ThemeToggle';
 import { AppGuide } from './components/AppGuide';
 import { AppConfigurator } from './components/AppConfigurator';
+import { SpotlightSearch } from './components/SpotlightSearch';
 import { useStore } from './store';
 import { cn } from './lib/utils';
 import { Ship, Info, LogIn, LogOut, Check, AlertCircle, FileSpreadsheet, Image as ImageIcon, Loader2, HelpCircle } from 'lucide-react';
@@ -29,7 +30,8 @@ export default function App() {
     googleToken, 
     setGoogleUser, 
     setKicFiles, 
-    setLebaliblogFiles 
+    setLebaliblogFiles,
+    livePreviewEnabled
   } = useStore();
   const [importMode, setImportMode] = useState<'FILE' | 'SHEETS'>('FILE');
   const activeTab = (tabs.find(t => t.id === activeTabId) || tabs[0] || {}) as any;
@@ -234,9 +236,9 @@ export default function App() {
 
       {/* Main Content */}
       <main className="flex-1 max-w-[1440px] mx-auto w-full px-4 sm:px-6 md:px-8 py-12 space-y-16">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-16">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 transition-all duration-500 ease-in-out">
           {/* Left Column: Configuration */}
-          <div className="lg:col-span-7 space-y-12 lg:space-y-16">
+          <div className={cn("space-y-12 lg:space-y-16 transition-all duration-500 ease-in-out", livePreviewEnabled ? "lg:col-span-5" : "lg:col-span-7")}>
             <section className="space-y-8">
               <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
                 <div className="space-y-2">
@@ -310,7 +312,7 @@ export default function App() {
           </div>
 
           {/* Right Column: Preview */}
-          <div className="lg:col-span-5">
+          <div className={cn("transition-all duration-500 ease-in-out", livePreviewEnabled ? "lg:col-span-7" : "lg:col-span-5")}>
             <div className="sticky top-12 space-y-8">
               <div className="space-y-2">
                 <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-bold">Step 04</span>
@@ -425,6 +427,7 @@ export default function App() {
 
       <AppGuide isOpen={showGuide} onClose={() => setShowGuide(false)} />
       <AppConfigurator isOpen={isConfiguratorOpen} onClose={() => setIsConfiguratorOpen(false)} />
+      <SpotlightSearch />
     </div>
   );
 }

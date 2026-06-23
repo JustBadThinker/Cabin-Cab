@@ -38,7 +38,9 @@ export const MediaGallery: React.FC = () => {
     kicFiles, 
     lebaliblogFiles, 
     loadingImages, 
-    imagesError 
+    imagesError,
+    livePreviewEnabled,
+    setLivePreviewEnabled
   } = useStore();
 
   const activeTab = (tabs.find(t => t.id === activeTabId) || tabs[0] || {}) as any;
@@ -78,6 +80,17 @@ export const MediaGallery: React.FC = () => {
   const [expandedListIds, setExpandedListIds] = useState<Record<string, boolean>>({});
   const [selectedPreviewFile, setSelectedPreviewFile] = useState<DriveFile | null>(null);
   const [modalCopyFeedback, setModalCopyFeedback] = useState<'IMAGE' | 'LINK' | 'FAILED' | null>(null);
+
+  // Live Picture Preview states
+  const [selectedLiveFile, setSelectedLiveFile] = useState<DriveFile | null>(null);
+
+  const handleImageSelect = (file: DriveFile) => {
+    if (livePreviewEnabled) {
+      setSelectedLiveFile(file);
+    } else {
+      setSelectedPreviewFile(file);
+    }
+  };
 
   // Firestore persistent wired states
   const [wiredUrls, setWiredUrls] = useState<string[]>([]);
@@ -617,6 +630,16 @@ export const MediaGallery: React.FC = () => {
     };
   }, [selectedPreviewFile, displayedFiles]);
 
+  useEffect(() => {
+    if (displayedFiles.length > 0) {
+      if (!selectedLiveFile || !displayedFiles.some(f => f.id === selectedLiveFile.id)) {
+        setSelectedLiveFile(displayedFiles[0]);
+      }
+    } else {
+      setSelectedLiveFile(null);
+    }
+  }, [displayedFiles, livePreviewEnabled]);
+
   const toggleListExpand = (id: string) => {
     setExpandedListIds(prev => ({ ...prev, [id]: !prev[id] }));
   };
@@ -757,32 +780,48 @@ export const MediaGallery: React.FC = () => {
           </h3>
         </div>
 
-        {/* View Mode Preferences */}
-        <div className="flex items-center gap-1.5 p-1 bg-muted/60 rounded-xl border border-border/40 self-start sm:self-center">
-          {[
-            { id: 'list', label: 'List', icon: ListIcon },
-            { id: 'small', label: 'Small', icon: Grid3X3 },
-            { id: 'medium', label: 'Medium', icon: LayoutGrid },
-            { id: 'big', label: 'Large', icon: Maximize2 }
-          ].map((mode) => {
-            const IconComponent = mode.icon;
-            const isActive = viewMode === mode.id;
-            return (
-              <button
-                key={mode.id}
-                onClick={() => setViewMode(mode.id as any)}
-                title={`${mode.label} View`}
-                className={cn(
-                  "p-2 rounded-lg transition-all cursor-pointer flex items-center justify-center",
-                  isActive 
-                    ? "bg-background text-foreground shadow-sm ring-1 ring-border" 
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <IconComponent className="w-4 h-4" />
-              </button>
-            );
-          })}
+        {/* View Mode Preferences & Live Preview Toggle */}
+        <div className="flex flex-wrap items-center gap-3 self-start sm:self-center">
+          <button
+            onClick={() => setLivePreviewEnabled(!livePreviewEnabled)}
+            className={cn(
+              "px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer border flex items-center gap-1.5",
+              livePreviewEnabled 
+                ? "bg-primary text-primary-foreground border-primary shadow-sm shadow-primary/10" 
+                : "bg-muted hover:bg-muted/85 border-border/40 text-muted-foreground hover:text-foreground"
+            )}
+            title="Toggle Large Image Preview on the side"
+          >
+            <Eye className="w-3.5 h-3.5" />
+            <span>{language === 'FR' ? "Aperçu Direct" : "Live Preview"}</span>
+          </button>
+
+          <div className="flex items-center gap-1.5 p-1 bg-muted/60 rounded-xl border border-border/40">
+            {[
+              { id: 'list', label: 'List', icon: ListIcon },
+              { id: 'small', label: 'Small', icon: Grid3X3 },
+              { id: 'medium', label: 'Medium', icon: LayoutGrid },
+              { id: 'big', label: 'Large', icon: Maximize2 }
+            ].map((mode) => {
+              const IconComponent = mode.icon;
+              const isActive = viewMode === mode.id;
+              return (
+                <button
+                  key={mode.id}
+                  onClick={() => setViewMode(mode.id as any)}
+                  title={`${mode.label} View`}
+                  className={cn(
+                    "p-2 rounded-lg transition-all cursor-pointer flex items-center justify-center",
+                    isActive 
+                      ? "bg-background text-foreground shadow-sm ring-1 ring-border" 
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <IconComponent className="w-4 h-4" />
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 
@@ -970,435 +1009,580 @@ export const MediaGallery: React.FC = () => {
           </p>
         </div>
       ) : (
-        <div className="max-h-[460px] overflow-y-auto pr-2 custom-scrollbar">
-          {/* 1. LIST VIEW (Accordions with collapsibility) */}
-          {viewMode === 'list' && (
-            <div className="space-y-2">
-              <AnimatePresence mode="popLayout">
-                {displayedFiles.map((file) => {
-                  const imageUrl = getDisplayImageUrl(file.id);
-                  const isExpanded = !!expandedListIds[file.id];
-                  
-                  return (
-                    <motion.div
-                      key={file.id}
-                      layout
-                      initial={{ opacity: 0, y: 5 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -5 }}
-                      className="border border-border bg-card/50 rounded-xl overflow-hidden transition-all hover:border-border/100"
-                    >
-                      {/* Header row */}
-                      <div 
-                        onClick={() => toggleListExpand(file.id)}
-                        className="px-4 py-3 flex items-center justify-between gap-4 cursor-pointer select-none hover:bg-muted/30"
+        <div className={cn(
+          "grid grid-cols-1 gap-6",
+          livePreviewEnabled && "xl:grid-cols-12 xl:gap-6"
+        )}>
+          {/* Thumbnail grid column */}
+          <div className={cn(
+            "max-h-[500px] overflow-y-auto pr-2 custom-scrollbar transition-all duration-500 ease-in-out",
+            livePreviewEnabled ? "xl:col-span-5" : "col-span-1"
+          )}>
+            {/* 1. LIST VIEW (Accordions with collapsibility) */}
+            {viewMode === 'list' && (
+              <div className="space-y-2">
+                <AnimatePresence mode="popLayout">
+                  {displayedFiles.map((file) => {
+                    const imageUrl = getDisplayImageUrl(file.id);
+                    const isExpanded = !!expandedListIds[file.id];
+                    
+                    return (
+                      <motion.div
+                        key={file.id}
+                        layout
+                        initial={{ opacity: 0, y: 5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -5 }}
+                        className="border border-border bg-card/50 rounded-xl overflow-hidden transition-all hover:border-border/100"
                       >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <FileImage className="w-4 h-4 text-primary shrink-0" />
-                          <span className="text-xs font-medium truncate text-foreground font-sans">
-                            {file.name}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          {/* Quick copy image icon button */}
-                          <button
-                            onClick={(e) => handleCopyImage(file, e)}
-                            title="Copy Image"
-                            className={cn(
-                              "p-1.5 rounded-lg border border-border/60 cursor-pointer transition-colors",
-                              copyFeedback[file.id] === 'IMAGE' 
-                                ? "bg-green-600 border-green-600 text-white" 
-                                : "bg-background hover:bg-muted text-muted-foreground hover:text-foreground"
-                            )}
-                          >
-                            {copyFeedback[file.id] === 'IMAGE' ? (
-                              <Check className="w-3.5 h-3.5" />
-                            ) : (
-                              <Copy className="w-3.5 h-3.5" />
-                            )}
-                          </button>
-
-                          {/* Preview trigger button */}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedPreviewFile(file);
-                            }}
-                            title="Preview Image"
-                            className="p-1.5 rounded-lg border border-border/60 bg-background hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                          </button>
-
-                          {/* Accordion indicator */}
-                          <ChevronDown 
-                            className={cn(
-                              "w-4 h-4 text-muted-foreground transition-transform duration-200", 
-                              isExpanded && "rotate-180 text-foreground"
-                            )} 
-                          />
-                        </div>
-                      </div>
-
-                      {/* Dropdown content */}
-                      <AnimatePresence initial={false}>
-                        {isExpanded && (
-                          <motion.div
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: "auto", opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
-                            transition={{ duration: 0.18 }}
-                            className="bg-muted/20 border-t border-border/40"
-                          >
-                            <div className="p-4 flex flex-col md:flex-row gap-4 items-start">
-                              {/* Left side preview */}
-                              <div 
-                                onClick={() => setSelectedPreviewFile(file)}
-                                className="relative aspect-video w-full md:w-48 rounded-xl overflow-hidden bg-muted border border-border cursor-zoom-in group"
-                              >
-                                <img
-                                  src={imageUrl}
-                                  alt={file.name}
-                                  referrerPolicy="no-referrer"
-                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                                />
-                                <div className="absolute inset-0 bg-black/25 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                  <Eye className="w-5 h-5 text-white" />
-                                </div>
-                              </div>
-
-                              {/* Right side information & actions */}
-                              <div className="flex-1 space-y-3 w-full">
-                                <div className="space-y-0.5">
-                                  <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Original File Name</span>
-                                  <p className="text-xs font-mono font-medium text-foreground break-all">{file.name}</p>
-                                </div>
-                                <div className="flex flex-wrap gap-2">
-                                  <button
-                                    onClick={(e) => handleCopyImage(file, e)}
-                                    className={cn(
-                                      "py-1.5 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer border",
-                                      copyFeedback[file.id] === 'IMAGE' 
-                                        ? "bg-green-600 border-green-600 text-white" 
-                                        : "bg-background border-border text-foreground hover:bg-muted"
-                                    )}
-                                  >
-                                    {copyFeedback[file.id] === 'IMAGE' ? (
-                                      <>
-                                        <Check className="w-3 h-3" />
-                                        Copied Image
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Copy className="w-3 h-3" />
-                                        Copy Direct Image
-                                      </>
-                                    )}
-                                  </button>
-
-                                  <button
-                                    onClick={() => setSelectedPreviewFile(file)}
-                                    className="py-1.5 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5 bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-all cursor-pointer"
-                                  >
-                                    <Eye className="w-3 h-3" />
-                                    Stream Preview
-                                  </button>
-
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      const url = file.webViewLink || `https://drive.google.com/open?id=${file.id}`;
-                                      window.open(url, '_blank', 'noreferrer,noopener');
-                                    }}
-                                    className="py-1.5 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5 bg-muted text-foreground hover:bg-muted/80 transition-all cursor-pointer"
-                                  >
-                                    <ExternalLink className="w-3 h-3" />
-                                    Google Drive
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </motion.div>
-                  );
-                })}
-              </AnimatePresence>
-            </div>
-          )}
-
-          {/* 2. SMALL GRID VIEW (Ultra density grid, multi columns, compact) */}
-          {viewMode === 'small' && (
-            <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2.5">
-              <AnimatePresence mode="popLayout">
-                {displayedFiles.map((file) => {
-                  const imageUrl = getDisplayImageUrl(file.id);
-                  const isImageFeedback = copyFeedback[file.id] === 'IMAGE';
-
-                  return (
-                    <motion.div
-                      key={file.id}
-                      layout
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.95 }}
-                      onClick={() => setSelectedPreviewFile(file)}
-                      className="group relative aspect-square bg-muted border border-border/80 hover:border-primary/50 rounded-xl overflow-hidden cursor-zoom-in transition-all flex flex-col justify-end"
-                    >
-                      <img
-                        src={imageUrl}
-                        alt={file.name}
-                        referrerPolicy="no-referrer"
-                        loading="lazy"
-                        className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                        onError={(e) => {
-                          if (file.thumbnailLink) {
-                            e.currentTarget.src = file.thumbnailLink.replace(/=s\d+/, '=s250');
-                          }
-                        }}
-                      />
-
-                      {/* Small floating copy action overlay, or always-on label */}
-                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 p-1.5 text-white">
-                        <p className="text-[8px] font-medium leading-none line-clamp-1 opacity-90 drop-shadow flex items-center justify-between gap-1">
-                          <span className="truncate max-w-[80%]">{file.name}</span>
-                          <span className="scale-75 shrink-0">
-                            {isImageFeedback ? (
-                              <Check className="w-2.5 h-2.5 text-green-400" />
-                            ) : (
-                              <Eye className="w-2.5 h-2.5 opacity-60" />
-                            )}
-                          </span>
-                        </p>
-                      </div>
-
-                      {/* Compact hover/active triggers */}
-                      <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-                        <button
-                          onClick={(e) => handleCopyImage(file, e)}
-                          title="Copy Image Directly"
-                          className={cn(
-                            "p-1 rounded-md cursor-pointer transition-transform duration-100 shadow-sm backdrop-blur-sm",
-                            isImageFeedback ? "bg-green-600 text-white" : "bg-black/60 text-white hover:bg-black/85"
-                          )}
+                        {/* Header row */}
+                        <div 
+                          onClick={() => toggleListExpand(file.id)}
+                          className="px-4 py-3 flex items-center justify-between gap-4 cursor-pointer select-none hover:bg-muted/30"
                         >
-                          {isImageFeedback ? <Check className="w-2.5 h-2.5" /> : <Copy className="w-2.5 h-2.5" />}
-                        </button>
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </AnimatePresence>
-            </div>
-          )}
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <FileImage className="w-4 h-4 text-primary shrink-0" />
+                            <span className="text-xs font-medium truncate text-foreground font-sans">
+                              {file.name}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {/* Quick copy image icon button */}
+                            <button
+                              onClick={(e) => handleCopyImage(file, e)}
+                              title="Copy Image"
+                              className={cn(
+                                "p-1.5 rounded-lg border border-border/60 cursor-pointer transition-colors",
+                                copyFeedback[file.id] === 'IMAGE' 
+                                  ? "bg-green-600 border-green-600 text-white" 
+                                  : "bg-background hover:bg-muted text-muted-foreground hover:text-foreground"
+                              )}
+                            >
+                              {copyFeedback[file.id] === 'IMAGE' ? (
+                                <Check className="w-3.5 h-3.5" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5" />
+                              )}
+                            </button>
 
-          {/* 3. MEDIUM GRID VIEW (The optimal balanced standard, 2-column) */}
-          {viewMode === 'medium' && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <AnimatePresence mode="popLayout">
-                {displayedFiles.map((file) => {
-                  const imageUrl = getDisplayImageUrl(file.id);
+                            {/* Preview trigger button */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleImageSelect(file);
+                              }}
+                              title="Preview Image"
+                              className="p-1.5 rounded-lg border border-border/60 bg-background hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
 
-                  return (
-                    <motion.div
-                      key={file.id}
-                      layout
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.95 }}
-                      transition={{ duration: 0.2 }}
-                      className="group relative border border-border bg-card/65 rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between"
-                    >
-                      {/* Image Frame */}
-                      <div 
-                        onClick={() => setSelectedPreviewFile(file)}
-                        className="relative aspect-video bg-muted overflow-hidden cursor-zoom-in"
-                      >
-                        <img
-                          src={imageUrl}
-                          alt={file.name}
-                          referrerPolicy="no-referrer"
-                          loading="lazy"
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                          onError={(e) => {
-                            if (file.thumbnailLink) {
-                              e.currentTarget.src = file.thumbnailLink.replace(/=s\d+/, '=s400');
-                            }
-                          }}
-                        />
-                        
-                        {/* Floating Info Overlay */}
-                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-3 pt-8 text-white">
-                          <p className="text-[10px] font-medium leading-tight line-clamp-1 opacity-90 drop-shadow-sm font-sans">
-                            {file.name}
-                          </p>
-                        </div>
-
-                        {/* Floating Preview Eye icon */}
-                        <div className="absolute top-2.5 left-2.5 p-1.5 rounded-lg bg-black/60 text-white/90 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                          <Eye className="w-3.5 h-3.5" />
-                        </div>
-
-                        {/* Floating Original redirect inside Google Drive */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const url = file.webViewLink || `https://drive.google.com/open?id=${file.id}`;
-                            window.open(url, '_blank', 'noopener,noreferrer');
-                          }}
-                          title="Open Original in Google Drive"
-                          className="absolute top-2.5 right-2.5 p-1.5 rounded-lg bg-black/60 hover:bg-black/80 text-white/90 hover:text-white transition-all cursor-pointer backdrop-blur-sm opacity-0 group-hover:opacity-100 focus:opacity-100"
-                        >
-                          <ExternalLink className="w-3 h-3" />
-                        </button>
-                      </div>
-
-                      {/* Copy Image Container */}
-                      <div className="p-3 bg-card flex flex-col gap-2">
-                        <div className="space-y-0.5">
-                          <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest block">File Name</span>
-                          <p className="text-[10px] font-mono font-medium truncate text-foreground leading-tight">
-                            {file.name}
-                          </p>
-                        </div>
-
-                        <button
-                          onClick={(e) => handleCopyImage(file, e)}
-                          className={cn(
-                            "w-full py-1.5 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer",
-                            copyFeedback[file.id] === 'IMAGE' && "bg-green-600 text-white",
-                            copyFeedback[file.id] === 'LINK' && "bg-amber-600 text-white",
-                            copyFeedback[file.id] === 'FAILED' && "bg-destructive text-white",
-                            !copyFeedback[file.id] && "bg-muted text-foreground hover:bg-foreground hover:text-background"
-                          )}
-                        >
-                          {copyFeedback[file.id] === 'IMAGE' ? (
-                            <>
-                              <Check className="w-3" />
-                              Copied Image
-                            </>
-                          ) : copyFeedback[file.id] === 'LINK' ? (
-                            <>
-                              <Check className="w-3" />
-                              Copied URL
-                            </>
-                          ) : copyFeedback[file.id] === 'FAILED' ? (
-                            <>
-                              <AlertCircle className="w-3" />
-                              Copy Failed
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="w-3" />
-                              Copy Image
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </AnimatePresence>
-            </div>
-          )}
-
-          {/* 4. BIG GRID VIEW (Single-column layout, detailed views) */}
-          {viewMode === 'big' && (
-            <div className="grid grid-cols-1 gap-6">
-              <AnimatePresence mode="popLayout">
-                {displayedFiles.map((file) => {
-                  const imageUrl = getDisplayImageUrl(file.id);
-                  const isImageFeedback = copyFeedback[file.id] === 'IMAGE';
-
-                  return (
-                    <motion.div
-                      key={file.id}
-                      layout
-                      initial={{ opacity: 0, y: 15 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="group border border-border bg-card rounded-2xl overflow-hidden shadow-md flex flex-col justify-between"
-                    >
-                      <div 
-                        onClick={() => setSelectedPreviewFile(file)}
-                        className="relative aspect-[16/9] w-full bg-muted overflow-hidden cursor-zoom-in"
-                      >
-                        <img
-                          src={imageUrl}
-                          alt={file.name}
-                          referrerPolicy="no-referrer"
-                          loading="lazy"
-                          className="w-full h-full object-cover group-hover:scale-[1.01] transition-transform duration-500"
-                        />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent p-5 flex items-end">
-                          <div className="space-y-1">
-                            <span className="text-[8px] font-black tracking-widest text-white/60 uppercase">High Definition Preview</span>
-                            <h4 className="text-sm font-bold text-white drop-shadow">{file.name}</h4>
+                            {/* Accordion indicator */}
+                            <ChevronDown 
+                              className={cn(
+                                "w-4 h-4 text-muted-foreground transition-transform duration-200", 
+                                isExpanded && "rotate-180 text-foreground"
+                              )} 
+                            />
                           </div>
                         </div>
 
-                        {/* Stream trigger */}
-                        <div className="absolute top-4 left-4 p-2 rounded-xl bg-black/60 text-white/95 text-[9px] font-black uppercase tracking-wider backdrop-blur-sm flex items-center gap-1.5 opacity-90">
-                          <Eye className="w-3.5 h-3.5" />
-                          Stream Click to Expand
-                        </div>
+                        {/* Dropdown content */}
+                        <AnimatePresence initial={false}>
+                          {isExpanded && (
+                            <motion.div
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: "auto", opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              transition={{ duration: 0.18 }}
+                              className="bg-muted/20 border-t border-border/40"
+                            >
+                              <div className="p-4 flex flex-col md:flex-row gap-4 items-start">
+                                {/* Left side preview */}
+                                <div 
+                                  onClick={() => handleImageSelect(file)}
+                                  className="relative aspect-video w-full md:w-48 rounded-xl overflow-hidden bg-muted border border-border cursor-zoom-in group"
+                                >
+                                  <img
+                                    src={imageUrl}
+                                    alt={file.name}
+                                    referrerPolicy="no-referrer"
+                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                  />
+                                  <div className="absolute inset-0 bg-black/25 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                    <Eye className="w-5 h-5 text-white" />
+                                  </div>
+                                </div>
 
-                        {/* Open in drive */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const url = file.webViewLink || `https://drive.google.com/open?id=${file.id}`;
-                            window.open(url, '_blank', 'noreferrer,noopener');
+                                {/* Right side information & actions */}
+                                <div className="flex-1 space-y-3 w-full">
+                                  <div className="space-y-0.5">
+                                    <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Original File Name</span>
+                                    <p className="text-xs font-mono font-medium text-foreground break-all">{file.name}</p>
+                                  </div>
+                                  <div className="flex flex-wrap gap-2">
+                                    <button
+                                      onClick={(e) => handleCopyImage(file, e)}
+                                      className={cn(
+                                        "py-1.5 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer border",
+                                        copyFeedback[file.id] === 'IMAGE' 
+                                          ? "bg-green-600 border-green-600 text-white" 
+                                          : "bg-background border-border text-foreground hover:bg-muted"
+                                      )}
+                                    >
+                                      {copyFeedback[file.id] === 'IMAGE' ? (
+                                        <>
+                                          <Check className="w-3 h-3" />
+                                          Copied Image
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Copy className="w-3 h-3" />
+                                          Copy Direct Image
+                                        </>
+                                      )}
+                                    </button>
+
+                                    <button
+                                      onClick={() => setSelectedPreviewFile(file)}
+                                      className="py-1.5 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5 bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-all cursor-pointer"
+                                    >
+                                      <Eye className="w-3 h-3" />
+                                      Stream Preview
+                                    </button>
+
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        const url = file.webViewLink || `https://drive.google.com/open?id=${file.id}`;
+                                        window.open(url, '_blank', 'noreferrer,noopener');
+                                      }}
+                                      className="py-1.5 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5 bg-muted text-foreground hover:bg-muted/80 transition-all cursor-pointer"
+                                    >
+                                      <ExternalLink className="w-3 h-3" />
+                                      Google Drive
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </motion.div>
+                    );
+                  })}
+                </AnimatePresence>
+              </div>
+            )}
+
+            {/* 2. SMALL GRID VIEW (Ultra density grid, multi columns, compact) */}
+            {viewMode === 'small' && (
+              <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 gap-2.5">
+                <AnimatePresence mode="popLayout">
+                  {displayedFiles.map((file) => {
+                    const imageUrl = getDisplayImageUrl(file.id);
+                    const isImageFeedback = copyFeedback[file.id] === 'IMAGE';
+
+                    return (
+                      <motion.div
+                        key={file.id}
+                        layout
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
+                        onClick={() => handleImageSelect(file)}
+                        className="group relative aspect-square bg-muted border border-border/80 hover:border-primary/50 rounded-xl overflow-hidden cursor-zoom-in transition-all flex flex-col justify-end"
+                      >
+                        <img
+                          src={imageUrl}
+                          alt={file.name}
+                          referrerPolicy="no-referrer"
+                          loading="lazy"
+                          className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          onError={(e) => {
+                            if (file.thumbnailLink) {
+                              e.currentTarget.src = file.thumbnailLink.replace(/=s\d+/, '=s250');
+                            }
                           }}
-                          className="absolute top-4 right-4 p-2 rounded-xl bg-black/60 hover:bg-black/85 text-white backdrop-blur-sm cursor-pointer transition-colors"
-                        >
-                          <ExternalLink className="w-4 h-4" />
-                        </button>
-                      </div>
+                        />
 
-                      {/* Control panel of big card */}
-                      <div className="p-4 bg-muted/15 border-t border-border/40 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                        <div className="min-w-0">
-                          <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground block">Google Drive Document Identifier</span>
-                          <p className="text-[11px] font-mono text-muted-foreground truncate font-medium">{file.id}</p>
+                        {/* Small floating copy action overlay, or always-on label */}
+                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 p-1.5 text-white">
+                          <p className="text-[8px] font-medium leading-none line-clamp-1 opacity-90 drop-shadow flex items-center justify-between gap-1">
+                            <span className="truncate max-w-[80%]">{file.name}</span>
+                            <span className="scale-75 shrink-0">
+                              {isImageFeedback ? (
+                                <Check className="w-2.5 h-2.5 text-green-400" />
+                              ) : (
+                                <Eye className="w-2.5 h-2.5 opacity-60" />
+                              )}
+                            </span>
+                          </p>
                         </div>
 
-                        <div className="flex gap-2 shrink-0">
+                        {/* Compact hover/active triggers */}
+                        <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                          <button
+                            onClick={(e) => handleCopyImage(file, e)}
+                            title="Copy Image Directly"
+                            className={cn(
+                              "p-1 rounded-md cursor-pointer transition-transform duration-100 shadow-sm backdrop-blur-sm",
+                              isImageFeedback ? "bg-green-600 text-white" : "bg-black/60 text-white hover:bg-black/85"
+                            )}
+                          >
+                            {isImageFeedback ? <Check className="w-2.5 h-2.5" /> : <Copy className="w-2.5 h-2.5" />}
+                          </button>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </AnimatePresence>
+              </div>
+            )}
+
+            {/* 3. MEDIUM GRID VIEW (The optimal balanced standard, 2-column) */}
+            {viewMode === 'medium' && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <AnimatePresence mode="popLayout">
+                  {displayedFiles.map((file) => {
+                    const imageUrl = getDisplayImageUrl(file.id);
+
+                    return (
+                      <motion.div
+                        key={file.id}
+                        layout
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
+                        transition={{ duration: 0.2 }}
+                        className="group relative border border-border bg-card/65 rounded-2xl overflow-hidden shadow-sm flex flex-col justify-between"
+                      >
+                        {/* Image Frame */}
+                        <div 
+                          onClick={() => handleImageSelect(file)}
+                          className="relative aspect-video bg-muted overflow-hidden cursor-zoom-in"
+                        >
+                          <img
+                            src={imageUrl}
+                            alt={file.name}
+                            referrerPolicy="no-referrer"
+                            loading="lazy"
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                            onError={(e) => {
+                              if (file.thumbnailLink) {
+                                e.currentTarget.src = file.thumbnailLink.replace(/=s\d+/, '=s400');
+                              }
+                            }}
+                          />
+                          
+                          {/* Floating Info Overlay */}
+                          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-3 pt-8 text-white">
+                            <p className="text-[10px] font-medium leading-tight line-clamp-1 opacity-90 drop-shadow-sm font-sans">
+                              {file.name}
+                            </p>
+                          </div>
+
+                          {/* Floating Preview Eye icon */}
+                          <div className="absolute top-2.5 left-2.5 p-1.5 rounded-lg bg-black/60 text-white/90 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                            <Eye className="w-3.5 h-3.5" />
+                          </div>
+
+                          {/* Floating Original redirect inside Google Drive */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const url = file.webViewLink || `https://drive.google.com/open?id=${file.id}`;
+                              window.open(url, '_blank', 'noopener,noreferrer');
+                            }}
+                            title="Open Original in Google Drive"
+                            className="absolute top-2.5 right-2.5 p-1.5 rounded-lg bg-black/60 hover:bg-black/80 text-white/90 hover:text-white transition-all cursor-pointer backdrop-blur-sm opacity-0 group-hover:opacity-100 focus:opacity-100"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                          </button>
+                        </div>
+
+                        {/* Copy Image Container */}
+                        <div className="p-3 bg-card flex flex-col gap-2">
+                          <div className="space-y-0.5">
+                            <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest block">File Name</span>
+                            <p className="text-[10px] font-mono font-medium truncate text-foreground leading-tight">
+                              {file.name}
+                            </p>
+                          </div>
+
                           <button
                             onClick={(e) => handleCopyImage(file, e)}
                             className={cn(
-                              "px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer border",
-                              isImageFeedback 
-                                ? "bg-green-600 border-green-600 text-white" 
-                                : "bg-background border-border text-foreground hover:bg-muted"
+                              "w-full py-1.5 px-3 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer",
+                              copyFeedback[file.id] === 'IMAGE' && "bg-green-600 text-white",
+                              copyFeedback[file.id] === 'LINK' && "bg-amber-600 text-white",
+                              copyFeedback[file.id] === 'FAILED' && "bg-destructive text-white",
+                              !copyFeedback[file.id] && "bg-muted text-foreground hover:bg-foreground hover:text-background"
                             )}
                           >
-                            {isImageFeedback ? (
+                            {copyFeedback[file.id] === 'IMAGE' ? (
                               <>
-                                <Check className="w-3.5" />
-                                Copied Image!
+                                <Check className="w-3" />
+                                Copied Image
+                              </>
+                            ) : copyFeedback[file.id] === 'LINK' ? (
+                              <>
+                                <Check className="w-3" />
+                                Copied URL
+                              </>
+                            ) : copyFeedback[file.id] === 'FAILED' ? (
+                              <>
+                                <AlertCircle className="w-3" />
+                                Copy Failed
                               </>
                             ) : (
                               <>
-                                <Copy className="w-3.5" />
-                                Copy Cabin Image
+                                <Copy className="w-3" />
+                                Copy Image
                               </>
                             )}
                           </button>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </AnimatePresence>
+              </div>
+            )}
 
+            {/* 4. BIG GRID VIEW (Single-column layout, detailed views) */}
+            {viewMode === 'big' && (
+              <div className="grid grid-cols-1 gap-6">
+                <AnimatePresence mode="popLayout">
+                  {displayedFiles.map((file) => {
+                    const imageUrl = getDisplayImageUrl(file.id);
+                    const isImageFeedback = copyFeedback[file.id] === 'IMAGE';
+
+                    return (
+                      <motion.div
+                        key={file.id}
+                        layout
+                        initial={{ opacity: 0, y: 15 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="group border border-border bg-card rounded-2xl overflow-hidden shadow-md flex flex-col justify-between"
+                      >
+                        <div 
+                          onClick={() => handleImageSelect(file)}
+                          className="relative aspect-[16/9] w-full bg-muted overflow-hidden cursor-zoom-in"
+                        >
+                          <img
+                            src={imageUrl}
+                            alt={file.name}
+                            referrerPolicy="no-referrer"
+                            loading="lazy"
+                            className="w-full h-full object-cover group-hover:scale-[1.01] transition-transform duration-500"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent p-5 flex items-end">
+                            <div className="space-y-1">
+                              <span className="text-[8px] font-black tracking-widest text-white/60 uppercase">High Definition Preview</span>
+                              <h4 className="text-sm font-bold text-white drop-shadow">{file.name}</h4>
+                            </div>
+                          </div>
+
+                          {/* Stream trigger */}
+                          <div className="absolute top-4 left-4 p-2 rounded-xl bg-black/60 text-white/95 text-[9px] font-black uppercase tracking-wider backdrop-blur-sm flex items-center gap-1.5 opacity-90">
+                            <Eye className="w-3.5 h-3.5" />
+                            Stream Click to Expand
+                          </div>
+
+                          {/* Open in drive */}
                           <button
-                            onClick={() => setSelectedPreviewFile(file)}
-                            className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider bg-primary text-primary-foreground hover:bg-primary/90 transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const url = file.webViewLink || `https://drive.google.com/open?id=${file.id}`;
+                              window.open(url, '_blank', 'noreferrer,noopener');
+                            }}
+                            className="absolute top-4 right-4 p-2 rounded-xl bg-black/60 hover:bg-black/85 text-white backdrop-blur-sm cursor-pointer transition-colors"
                           >
-                            <Eye className="w-3.5" />
-                            Expand Preview
+                            <ExternalLink className="w-4 h-4" />
                           </button>
                         </div>
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </AnimatePresence>
+
+                        {/* Control panel of big card */}
+                        <div className="p-4 bg-muted/15 border-t border-border/40 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                          <div className="min-w-0">
+                            <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground block">Google Drive Document Identifier</span>
+                            <p className="text-[11px] font-mono text-muted-foreground truncate font-medium">{file.id}</p>
+                          </div>
+
+                          <div className="flex gap-2 shrink-0">
+                            <button
+                              onClick={(e) => handleCopyImage(file, e)}
+                              className={cn(
+                                "px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer border",
+                                isImageFeedback 
+                                  ? "bg-green-600 border-green-600 text-white" 
+                                  : "bg-background border-border text-foreground hover:bg-muted"
+                              )}
+                            >
+                              {isImageFeedback ? (
+                                <>
+                                  <Check className="w-3.5" />
+                                  Copied Image!
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3.5" />
+                                  Copy Cabin Image
+                                </>
+                              )}
+                            </button>
+
+                            <button
+                              onClick={() => setSelectedPreviewFile(file)}
+                              className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider bg-primary text-primary-foreground hover:bg-primary/90 transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
+                            >
+                              <Eye className="w-3.5" />
+                              Expand Preview
+                            </button>
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </AnimatePresence>
+              </div>
+            )}
+          </div>
+
+          {/* Live Preview Persistent Column */}
+          {livePreviewEnabled && (
+            <div className="xl:col-span-7 h-[500px] flex flex-col border border-border bg-card rounded-2xl overflow-hidden shadow-md sticky top-[100px] transition-all duration-500 ease-in-out">
+              {/* Header */}
+              <div className="px-4 py-3 bg-muted/40 border-b border-border flex items-center justify-between gap-2 shrink-0">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse shrink-0" />
+                  <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground truncate">
+                    {language === 'FR' ? "Grand Aperçu Actif" : "Active Live Preview"}
+                  </span>
+                </div>
+                <button
+                  onClick={() => setLivePreviewEnabled(false)}
+                  className="p-1 hover:bg-muted text-muted-foreground hover:text-foreground rounded-lg transition-colors cursor-pointer"
+                  title="Close Live Preview"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {/* Body */}
+              {selectedLiveFile ? (
+                <div className="flex-1 flex flex-col min-h-0 bg-stone-900/10 dark:bg-black/20 p-4 gap-4 justify-between">
+                  {/* Image viewport */}
+                  <div className="relative flex-1 min-h-0 rounded-xl overflow-hidden border border-border bg-stone-900 flex items-center justify-center group">
+                    <img
+                      src={getDisplayImageUrl(selectedLiveFile.id)}
+                      alt={selectedLiveFile.name}
+                      referrerPolicy="no-referrer"
+                      className="max-w-full max-h-full object-contain"
+                    />
+
+                    {/* Navigation Arrows overlay */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const currentIndex = displayedFiles.findIndex(f => f.id === selectedLiveFile.id);
+                        if (currentIndex > 0) {
+                          setSelectedLiveFile(displayedFiles[currentIndex - 1]);
+                        } else {
+                          setSelectedLiveFile(displayedFiles[displayedFiles.length - 1]);
+                        }
+                      }}
+                      className="absolute left-2.5 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/60 hover:bg-black/85 text-white/90 hover:text-white transition-all cursor-pointer"
+                      title="Previous Image"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const currentIndex = displayedFiles.findIndex(f => f.id === selectedLiveFile.id);
+                        if (currentIndex !== -1 && currentIndex < displayedFiles.length - 1) {
+                          setSelectedLiveFile(displayedFiles[currentIndex + 1]);
+                        } else {
+                          setSelectedLiveFile(displayedFiles[0]);
+                        }
+                      }}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/60 hover:bg-black/85 text-white/90 hover:text-white transition-all cursor-pointer"
+                      title="Next Image"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Actions & details metadata */}
+                  <div className="space-y-3 shrink-0 text-left">
+                    <div className="space-y-1">
+                      <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground block">
+                        {language === 'FR' ? "Nom du fichier" : "File Name"}
+                      </span>
+                      <p className="text-[11px] font-mono font-bold text-foreground line-clamp-2 leading-tight">
+                        {selectedLiveFile.name}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={(e) => handleCopyImage(selectedLiveFile, e)}
+                        className={cn(
+                          "flex-1 py-1.5 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer border",
+                          copyFeedback[selectedLiveFile.id] === 'IMAGE' 
+                            ? "bg-green-600 border-green-600 text-white" 
+                            : "bg-background border-border text-foreground hover:bg-muted"
+                        )}
+                      >
+                        {copyFeedback[selectedLiveFile.id] === 'IMAGE' ? (
+                          <>
+                            <Check className="w-3 h-3" />
+                            {language === 'FR' ? "Copié" : "Copied"}
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3" />
+                            {language === 'FR' ? "Copier" : "Copy"}
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedPreviewFile(selectedLiveFile);
+                        }}
+                        className="py-1.5 px-2.5 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center justify-center gap-1 bg-secondary text-secondary-foreground hover:bg-secondary/85 transition-all cursor-pointer border border-transparent"
+                        title="Open Fullscreen View"
+                      >
+                        <Maximize2 className="w-3.5 h-3.5" />
+                      </button>
+
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const url = selectedLiveFile.webViewLink || `https://drive.google.com/open?id=${selectedLiveFile.id}`;
+                          window.open(url, '_blank', 'noreferrer,noopener');
+                        }}
+                        className="py-1.5 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center justify-center gap-1 bg-muted text-foreground hover:bg-muted/80 transition-all cursor-pointer border border-border/40"
+                        title="View on Google Drive"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-muted-foreground">
+                  <FileImage className="w-8 h-8 opacity-45 mb-3" />
+                  <p className="text-xs font-semibold">
+                    {language === 'FR' ? "Aucune image sélectionnée" : "No image selected"}
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react';
-import { Search, Anchor, X, CalendarX, CalendarCheck, Ship } from 'lucide-react';
-import { useStore } from '../store';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Search, Anchor, X, CalendarX, CalendarCheck, Ship, Check, Sparkles } from 'lucide-react';
+import { useStore, Cabin, Boat } from '../store';
 import { cn } from '../lib/utils';
 import Fuse from 'fuse.js';
 import { motion, AnimatePresence } from 'motion/react';
@@ -26,7 +26,18 @@ export const BoatSelector: React.FC = () => {
   } = activeTab;
 
   const [search, setSearch] = useState('');
+  const [selectorTab, setSelectorTab] = useState<'BOATS' | 'CABINS'>('BOATS');
 
+  // Sync with store's activeSectionTab
+  useEffect(() => {
+    if (activeSectionTab === 'CABINS' && selectedBoatName) {
+      setSelectorTab('CABINS');
+    } else if (activeSectionTab === 'BOATS') {
+      setSelectorTab('BOATS');
+    }
+  }, [activeSectionTab, selectedBoatName]);
+
+  // Fuse search for boats
   const fuse = useMemo(() => new Fuse(boats, {
     keys: ['name'],
     threshold: 0.3,
@@ -42,86 +53,120 @@ export const BoatSelector: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Search Input always visible at the top */}
-      <div className="relative group">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground transition-colors group-focus-within:text-primary" />
-        <input
-          type="text"
-          placeholder={language === 'FR' ? "Rechercher un bateau..." : "Search boat name..."}
-          value={search}
-          onFocus={(e) => {
-            if (activeSectionTab !== 'BOATS') {
-              setActiveSectionTab('BOATS');
+      <div className="space-y-2.5">
+        <div className="relative group">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground transition-colors group-focus-within:text-primary" />
+          <input
+            type="text"
+            placeholder={
+              selectorTab === 'CABINS'
+                ? (language === 'FR' ? "Rechercher une cabine..." : "Search cabin type...")
+                : (language === 'FR' ? "Rechercher un bateau..." : "Search boat name...")
             }
-            if (search) {
-              e.currentTarget.select();
-            }
-          }}
-          onClick={(e) => {
-            if (search) {
-              e.currentTarget.select();
-            }
-          }}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            if (activeSectionTab !== 'BOATS') {
-              setActiveSectionTab('BOATS');
-            }
-          }}
-          className="w-full pl-12 pr-12 py-4 rounded-2xl border border-border bg-card/50 backdrop-blur-sm focus:outline-none focus:ring-4 focus:ring-primary/5 focus:border-primary transition-all text-sm animate-fade-in"
-        />
-        <AnimatePresence>
-          {search && (
-            <motion.button
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-              onClick={() => {
-                setSearch('');
+            value={search}
+            onFocus={(e) => {
+              if (selectorTab === 'CABINS') {
+                setSelectorTab('BOATS');
                 setActiveSectionTab('BOATS');
-              }}
-              className="absolute right-4 top-1/2 -translate-y-1/2 p-1 hover:bg-muted rounded-full transition-colors cursor-pointer"
-            >
-              <X className="w-3 h-3 text-muted-foreground" />
-            </motion.button>
-          )}
-        </AnimatePresence>
+              }
+              if (search) {
+                e.currentTarget.select();
+              }
+            }}
+            onClick={(e) => {
+              if (search) {
+                e.currentTarget.select();
+              }
+            }}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              if (selectorTab === 'CABINS') {
+                setSelectorTab('BOATS');
+                setActiveSectionTab('BOATS');
+              }
+            }}
+            className="w-full h-14 pl-12 pr-12 rounded-2xl border border-border bg-card/50 backdrop-blur-sm focus:outline-none focus:ring-4 focus:ring-primary/5 focus:border-primary transition-all text-sm animate-fade-in"
+          />
+          <AnimatePresence>
+            {search && (
+              <motion.button
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.8 }}
+                onClick={() => {
+                  setSearch('');
+                }}
+                className="absolute right-4 top-1/2 -translate-y-1/2 p-1 hover:bg-muted rounded-full transition-colors cursor-pointer"
+              >
+                <X className="w-3 h-3 text-muted-foreground" />
+              </motion.button>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* Keyboard shortcut notice */}
+        <div className="flex items-center gap-1 px-1 text-[11px] text-muted-foreground/90 font-medium">
+          <Sparkles className="w-3.5 h-3.5 text-amber-500/80 shrink-0 mr-0.5" />
+          <span>
+            {language === 'FR'
+              ? "Recherche instantanée : presser "
+              : "Search instant: press "}
+          </span>
+          <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted/65 text-[10px] font-bold font-mono text-foreground shadow-sm">
+            Alt
+          </kbd>
+          <span className="text-muted-foreground/60">+</span>
+          <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted/65 text-[10px] font-bold font-mono text-foreground shadow-sm">
+            F
+          </kbd>
+          <span>
+            {language === 'FR'
+              ? " (ou Option ⌥ + F sur Mac) pour trouver bateau/cabine"
+              : " (or Option ⌥ + F on Mac) to search any boat/cabin"}
+          </span>
+        </div>
       </div>
 
-      {/* Tabs list (Only show if CABIN mode and a boat is available/selected) */}
+      {/* Tabs list (Only show if CABIN mode and boat can be chosen) */}
       {mode === 'CABIN' && (
         <div className="flex border-b border-border/60">
           <button
-            onClick={() => setActiveSectionTab('BOATS')}
+            onClick={() => {
+              setSelectorTab('BOATS');
+              setActiveSectionTab('BOATS');
+            }}
             className={cn(
               "flex-1 pb-3 text-center text-xs font-bold uppercase tracking-widest border-b-2 transition-all cursor-pointer relative",
-              activeSectionTab === 'BOATS'
+              selectorTab === 'BOATS'
                 ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground hover:text-foreground"
             )}
           >
-            {language === 'FR' ? 'Bateau' : 'Boat'}
+            {language === 'FR' ? 'Bateaux' : 'Boats'}
             {selectedBoatName && (
-              <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-primary/10 text-primary text-[9px] font-mono lowercase">
+              <span className="ml-1.5 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[9px] font-mono lowercase">
                 {selectedBoatName}
               </span>
             )}
           </button>
+
           <button
             onClick={() => {
               if (selectedBoatName) {
+                setSelectorTab('CABINS');
                 setActiveSectionTab('CABINS');
               }
             }}
             disabled={!selectedBoatName}
             className={cn(
               "flex-1 pb-3 text-center text-xs font-bold uppercase tracking-widest border-b-2 transition-all relative flex items-center justify-center gap-1.5",
-              activeSectionTab === 'CABINS'
+              selectorTab === 'CABINS'
                 ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground hover:text-foreground",
               !selectedBoatName ? "opacity-35 cursor-not-allowed" : "cursor-pointer"
             )}
           >
-            {language === 'FR' ? 'Cabines' : 'Cabins'}
+            {language === 'FR' ? 'Cabines Actives' : 'Active Cabins'}
             {!selectedBoatName && (
               <span className="text-[8px] font-black uppercase text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full scale-90">
                 {language === 'FR' ? 'Inactif' : 'Locked'}
@@ -133,7 +178,7 @@ export const BoatSelector: React.FC = () => {
 
       {/* Tab Panels content */}
       <AnimatePresence mode="wait">
-        {mode === 'CHARTER' || activeSectionTab === 'BOATS' ? (
+        {mode === 'CHARTER' || selectorTab === 'BOATS' ? (
           <motion.div
             key="boats-panel"
             initial={{ opacity: 0, x: -10 }}
@@ -149,8 +194,16 @@ export const BoatSelector: React.FC = () => {
                   key={boat.name}
                   role="button"
                   tabIndex={0}
-                  onClick={() => setSelectedBoatName(boat.name)}
-                  onKeyDown={(e) => e.key === 'Enter' && setSelectedBoatName(boat.name)}
+                  onClick={() => {
+                    setSelectedBoatName(boat.name);
+                    setSelectorTab('CABINS');
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      setSelectedBoatName(boat.name);
+                      setSelectorTab('CABINS');
+                    }
+                  }}
                   className={cn(
                     "flex items-center gap-4 p-4 rounded-2xl border transition-all text-left group relative overflow-hidden cursor-pointer outline-none focus:ring-2 focus:ring-primary/20",
                     selectedBoatName === boat.name 
