@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore, DriveFile, Cabin } from '../store';
-import { cn, copyImageToClipboard, copyTextToClipboard } from '../lib/utils';
+import { cn, copyImageToClipboard, copyTextToClipboard, sanitizeWiredUrls } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   FileImage, 
@@ -131,7 +131,7 @@ export const MediaGallery: React.FC = () => {
     if (cachedNew) {
       try {
         const parsed = JSON.parse(cachedNew);
-        if (Array.isArray(parsed)) initialUrls = parsed;
+        if (Array.isArray(parsed)) initialUrls = sanitizeWiredUrls(parsed);
       } catch (_) {}
     }
 
@@ -159,7 +159,7 @@ export const MediaGallery: React.FC = () => {
         setIsLoadingWired(false);
         if (docSnap.exists()) {
           const data = docSnap.data();
-          const urls = data.urls || [];
+          const urls = sanitizeWiredUrls(data.urls || []);
           setWiredUrls(urls);
           localStorage.setItem(localKey, JSON.stringify(urls));
         } else {
@@ -209,12 +209,13 @@ export const MediaGallery: React.FC = () => {
     };
   }, [selectedBoatName, activeFolderTab]);
 
-  const handleSaveWiredImages = async (urlsToSave: string[]) => {
+  const handleSaveWiredImages = async (rawUrls: string[]) => {
     if (!selectedBoatName) return;
     setIsSavingWired(true);
     setWiredError(null);
     const boatId = getBoatDocId(selectedBoatName, activeFolderTab);
     const localKey = `wired_images_${boatId}`;
+    const urlsToSave = sanitizeWiredUrls(rawUrls);
 
     // 1. Instantly save to local cache for maximum snappy responsiveness in the immediate browser session
     try {

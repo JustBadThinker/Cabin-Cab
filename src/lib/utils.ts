@@ -302,4 +302,148 @@ export function matchShortcut(e: KeyboardEvent, shortcutStr: string): boolean {
   return e.key.toLowerCase() === primaryKey;
 }
 
+/**
+ * Sanitizes list of boat image URLs to prevent XSS, Prototype Pollution, and caching overflow
+ */
+export function sanitizeWiredUrls(urls: any): string[] {
+  if (!Array.isArray(urls)) return [];
+  return urls
+    .filter((u): u is string => typeof u === 'string')
+    .map(u => u.trim())
+    .filter(u => {
+      try {
+        const lower = u.toLowerCase();
+        // Allow ONLY secure http or https protocols to block javascript: and data: XSS payloads
+        if (!lower.startsWith('http://') && !lower.startsWith('https://')) return false;
+        // Limit individual URL length to avoid ReDoS / performance issues
+        if (u.length > 2000) return false;
+        // Strip out dangerous tag wrappers or attributes
+        if (u.includes('<') || u.includes('>') || u.includes('"') || u.includes("'")) return false;
+        return true;
+      } catch (_) {
+        return false;
+      }
+    })
+    .slice(0, 50); // limit to max 50 items to prevent Denial of Wallet/exhaustion
+}
+
+/**
+ * Validates passcode strength: minimum 8 characters, with uppercase, lowercase, numbers, and special characters
+ */
+export function validatePasswordStrength(pass: string, language: string = 'EN'): string | null {
+  if (pass.length < 8) {
+    return language === 'FR' 
+      ? "Le mot de passe doit comporter au moins 8 caractères (exigé)." 
+      : "Password must be at least 8 characters long (required).";
+  }
+  if (!/[A-Z]/.test(pass)) {
+    return language === 'FR'
+      ? "Le mot de passe doit contenir au moins une lettre majuscule."
+      : "Password must contain at least one uppercase letter.";
+  }
+  if (!/[a-z]/.test(pass)) {
+    return language === 'FR'
+      ? "Le mot de passe doit contenir au moins une lettre minuscule."
+      : "Password must contain at least one lowercase letter.";
+  }
+  if (!/[0-9]/.test(pass)) {
+    return language === 'FR'
+      ? "Le mot de passe doit contenir au moins un chiffre."
+      : "Password must contain at least one number.";
+  }
+  if (!/[!@#$%^&*(),.?":{}|<>]/.test(pass)) {
+    return language === 'FR'
+      ? "Le mot de passe doit contenir au moins un caractère spécial."
+      : "Password must contain at least one special character (e.g. !@#$%).";
+  }
+  return null;
+}
+
+/**
+ * Clean, portable, and secure synchronous SHA-256 implementation
+ */
+export function sha256(ascii: string): string {
+  function rightRotate(value: number, amount: number) {
+    return (value >>> amount) | (value << (32 - amount));
+  }
+  
+  const mathPow = Math.pow;
+  const maxWord = mathPow(2, 32);
+  const lengthProperty = 'length';
+  let i, j;
+  let result = '';
+
+  const words: any[] = [];
+  const asciiLength = ascii[lengthProperty] * 8;
+  
+  let hash: any[] = [];
+  let k: any[] = [];
+  let primeCounter = 0;
+
+  const isPrime = function(n: number) {
+    for (let factor = 2; factor * factor <= n; factor++) {
+      if (n % factor === 0) return false;
+    }
+    return true;
+  };
+
+  let candidate = 2;
+  while (primeCounter < 64) {
+    if (isPrime(candidate)) {
+      if (primeCounter < 8) {
+        hash[primeCounter] = (mathPow(candidate, 1/2) * maxWord) | 0;
+      }
+      k[primeCounter] = (mathPow(candidate, 1/3) * maxWord) | 0;
+      primeCounter++;
+    }
+    candidate++;
+  }
+  
+  let str = ascii + '\x80';
+  while (str[lengthProperty] % 64 - 56) str += '\x00';
+  for (i = 0; i < str[lengthProperty]; i++) {
+    j = str.charCodeAt(i);
+    if (j >> 8) return '';
+    words[i >> 2] |= j << ((3 - i % 4) * 8);
+  }
+  words[words[lengthProperty]] = ((asciiLength / maxWord) | 0);
+  words[words[lengthProperty]] = (asciiLength | 0);
+  
+  for (j = 0; j < words[lengthProperty]; j += 16) {
+    const w = words.slice(j, j + 16);
+    const oldHash = hash.slice(0);
+    for (i = 0; i < 64; i++) {
+      const wItem = w[i];
+      const a = hash[0], e = hash[4];
+      const s1 = rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25);
+      const ch = (e & hash[5]) ^ (~e & hash[6]);
+      const temp1 = hash[7] + s1 + ch + k[i] + (w[i] = (i < 16 ? wItem : (
+        wItem + 
+        (rightRotate(wItem, 17) ^ rightRotate(wItem, 19) ^ (wItem >>> 10)) + 
+        w[i - 7] + 
+        (rightRotate(w[i - 15], 7) ^ rightRotate(w[i - 15], 18) ^ (w[i - 15] >>> 3))
+      ) | 0));
+      const s0 = rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22);
+      const maj = (a & hash[1]) ^ (a & hash[2]) ^ (hash[1] & hash[2]);
+      const temp2 = s0 + maj;
+      
+      hash = [(temp1 + temp2) | 0].concat(hash);
+      hash[4] = (hash[4] + temp1) | 0;
+      hash[8] = 0;
+      hash.pop();
+    }
+    for (i = 0; i < 8; i++) {
+      hash[i] = (hash[i] + oldHash[i]) | 0;
+    }
+  }
+  
+  for (i = 0; i < 8; i++) {
+    for (j = 3; j + 1; j--) {
+      const b = (hash[i] >> (j * 8)) & 255;
+      result += (b < 16 ? '0' : '') + b.toString(16);
+    }
+  }
+  return result;
+}
+
 

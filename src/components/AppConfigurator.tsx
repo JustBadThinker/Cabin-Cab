@@ -6,7 +6,7 @@ import {
   Lock, Unlock, Key, Image, Search, Mail, Link, Check, Loader2, FileText,
   Download, Upload, Keyboard
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, sanitizeWiredUrls, validatePasswordStrength, sha256 } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { doc, getDoc, setDoc, onSnapshot, serverTimestamp, collection, getDocs, writeBatch } from 'firebase/firestore';
 import { db, auth, getWhitelistedEmails, saveWhitelistedEmails } from '../lib/firebase';
@@ -100,8 +100,16 @@ export const AppConfigurator: React.FC<AppConfiguratorProps> = ({ isOpen, onClos
 
   const handleSetupPasscode = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!password.trim()) return;
-    localStorage.setItem('datacenter_admin_password', password.trim());
+    setPPassError(null);
+    const pass = password.trim();
+    if (!pass) return;
+    const strengthErr = validatePasswordStrength(pass, language);
+    if (strengthErr) {
+      setPPassError(strengthErr);
+      return;
+    }
+    const hashed = sha256(pass);
+    localStorage.setItem('datacenter_admin_password', hashed);
     setIsUnlocked(true);
     setPassword('');
   };
@@ -109,8 +117,9 @@ export const AppConfigurator: React.FC<AppConfiguratorProps> = ({ isOpen, onClos
   const handleUnlock = (e: React.FormEvent) => {
     e.preventDefault();
     setPPassError(null);
-    const correctPass = getAdminPassphrase();
-    if (correctPass && password === correctPass) {
+    const correctHash = getAdminPassphrase();
+    const inputHash = sha256(password.trim());
+    if (correctHash && inputHash === correctHash) {
       setIsUnlocked(true);
       setPassword('');
     } else {
@@ -121,8 +130,15 @@ export const AppConfigurator: React.FC<AppConfiguratorProps> = ({ isOpen, onClos
   const handleChangePassword = (e: React.FormEvent) => {
     e.preventDefault();
     setPassFeedback(null);
-    if (!newPass.trim()) return;
-    localStorage.setItem('datacenter_admin_password', newPass.trim());
+    const pass = newPass.trim();
+    if (!pass) return;
+    const strengthErr = validatePasswordStrength(pass, language);
+    if (strengthErr) {
+      setPassFeedback(strengthErr);
+      return;
+    }
+    const hashed = sha256(pass);
+    localStorage.setItem('datacenter_admin_password', hashed);
     setPassFeedback(language === 'FR' ? "Le mot de passe administrateur a été modifié" : "Administrator password modified successfully");
     setNewPass('');
   };
@@ -380,7 +396,7 @@ export const AppConfigurator: React.FC<AppConfiguratorProps> = ({ isOpen, onClos
   };
 
   // Save wired images for choice boat & company tab
-  const saveUrlsArray = async (urlsToSave: string[]) => {
+  const saveUrlsArray = async (rawUrls: string[]) => {
     if (!wiredBoatName) return;
     setLoadingWired(true);
     setWiringError(null);
@@ -388,6 +404,7 @@ export const AppConfigurator: React.FC<AppConfiguratorProps> = ({ isOpen, onClos
 
     const docId = getBoatDocId(wiredBoatName, companyTab);
     const docRef = doc(db, 'wiredBoatImages', docId);
+    const urlsToSave = sanitizeWiredUrls(rawUrls);
 
     // Save to localStorage as redundancy (immediate local update!)
     localStorage.setItem(`wired_images_${docId}`, JSON.stringify(urlsToSave));
@@ -733,7 +750,8 @@ export const AppConfigurator: React.FC<AppConfiguratorProps> = ({ isOpen, onClos
       // Save each to local localStorage immediately for absolute snappiness
       for (const item of parsedResults) {
         const docId = getBoatDocId(item.boatName, item.company);
-        localStorage.setItem(`wired_images_${docId}`, JSON.stringify(item.urls));
+        const cleanUrls = sanitizeWiredUrls(item.urls);
+        localStorage.setItem(`wired_images_${docId}`, JSON.stringify(cleanUrls));
       }
 
       // If user is not logged in, we are completed locally and do not trigger slow write attempts
@@ -753,7 +771,7 @@ export const AppConfigurator: React.FC<AppConfiguratorProps> = ({ isOpen, onClos
         const docRef = doc(db, 'wiredBoatImages', docId);
         batchOp.set(docRef, {
           boatName: item.boatName,
-          urls: item.urls,
+          urls: sanitizeWiredUrls(item.urls),
           updatedBy: auth.currentUser.uid,
           updatedAt: serverTimestamp()
         });
