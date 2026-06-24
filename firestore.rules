@@ -39,6 +39,14 @@ service cloud.firestore {
         && data.updatedAt == request.time;
     }
 
+    // Entity validator for Config Whitelist
+    function isValidConfigWhitelist(data) {
+      return data.keys().hasAll(['emails', 'updatedAt'])
+        && data.keys().size() == 2
+        && data.emails is list
+        && data.updatedAt is string;
+    }
+
     match /wiredBoatImages/{boatId} {
       allow get: if isSignedIn() && isValidId(boatId);
       allow list: if isSignedIn();
@@ -58,7 +66,12 @@ service cloud.firestore {
     }
 
     match /config/{documentId} {
-      allow read, write: if isSignedIn() && isValidId(documentId);
+      allow read: if isSignedIn() && isValidId(documentId);
+      allow write: if isSignedIn() && isValidId(documentId) && (
+        request.auth.token.email.matches('(?i)reservation\\.kic@gmail\\.com') ||
+        request.auth.token.email.matches('(?i)badthinkermorethanu@gmail\\.com') ||
+        request.auth.token.email.matches('(?i)reservation\\.lebaliblog@gmail\\.com')
+      ) && (documentId != 'whitelist' || isValidConfigWhitelist(incoming()));
     }
   }
 }

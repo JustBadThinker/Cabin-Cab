@@ -2,7 +2,35 @@ import * as XLSX from 'xlsx';
 import { Boat, Cabin } from './store';
 import { isValidLink } from './lib/utils';
 
-export function processWorkbookData(jsonData: any[][]): Boat[] {
+// Guard against Prototype Pollution by sanitizing incoming data structures
+function sanitizeData<T>(data: T): T {
+  if (data === null || data === undefined) return data;
+  if (typeof data === 'string') {
+    // Basic string sanitization to strip script elements if any
+    return data.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '') as unknown as T;
+  }
+  if (Array.isArray(data)) {
+    return data.map(item => sanitizeData(item)) as unknown as T;
+  }
+  if (typeof data === 'object') {
+    const sanitizedObj: any = {};
+    for (const key in data) {
+      if (Object.prototype.hasOwnProperty.call(data, key)) {
+        const lowerKey = key.toLowerCase();
+        // Prevent Prototype Pollution keys
+        if (lowerKey === '__proto__' || lowerKey === 'constructor' || lowerKey === 'prototype') {
+          continue;
+        }
+        sanitizedObj[key] = sanitizeData((data as any)[key]);
+      }
+    }
+    return sanitizedObj as T;
+  }
+  return data;
+}
+
+export function processWorkbookData(rawJsonData: any[][]): Boat[] {
+  const jsonData = sanitizeData(rawJsonData);
   if (jsonData.length < 2) {
     return [];
   }

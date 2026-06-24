@@ -46,25 +46,35 @@ export interface FirestoreErrorInfo {
   }
 }
 
+function maskEmail(email: string | null | undefined): string | null {
+  if (!email) return null;
+  const parts = email.split('@');
+  if (parts.length !== 2) return '***';
+  const name = parts[0];
+  const domain = parts[1];
+  if (name.length <= 2) return `${name[0]}***@${domain}`;
+  return `${name[0]}***${name[name.length - 1]}@${domain}`;
+}
+
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
       userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
+      email: maskEmail(auth.currentUser?.email),
       emailVerified: auth.currentUser?.emailVerified,
       isAnonymous: auth.currentUser?.isAnonymous,
       tenantId: auth.currentUser?.tenantId,
       providerInfo: auth.currentUser?.providerData?.map(provider => ({
         providerId: provider.providerId,
-        email: provider.email,
+        email: maskEmail(provider.email),
       })) || []
     },
     operationType,
     path
   };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  console.error('Firestore Error (sanitized): ', JSON.stringify(errInfo));
+  throw new Error('Database transaction failed. Reference details have been sanitized and recorded.');
 }
 
 
@@ -74,9 +84,6 @@ provider.addScope('https://www.googleapis.com/auth/drive.metadata.readonly');
 
 let isSigningIn = false;
 let cachedAccessToken: string | null = null;
-try {
-  cachedAccessToken = sessionStorage.getItem('google_access_token');
-} catch (_) {}
 
 export const initAuth = (
   onAuthSuccess?: (user: User, token: string | null) => void,
@@ -89,9 +96,6 @@ export const initAuth = (
       }
     } else {
       cachedAccessToken = null;
-      try {
-        sessionStorage.removeItem('google_access_token');
-      } catch (_) {}
       if (onAuthFailure) onAuthFailure();
     }
   });
@@ -107,9 +111,6 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     }
 
     cachedAccessToken = credential.accessToken;
-    try {
-      sessionStorage.setItem('google_access_token', cachedAccessToken);
-    } catch (_) {}
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
     if (error.code === 'auth/popup-closed-by-user') {
@@ -134,9 +135,6 @@ export const getAccessToken = () => cachedAccessToken;
 export const logout = async () => {
   await auth.signOut();
   cachedAccessToken = null;
-  try {
-    sessionStorage.removeItem('google_access_token');
-  } catch (_) {}
 };
 
 export const DEFAULT_WHITELIST = [

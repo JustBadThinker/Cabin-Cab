@@ -97,6 +97,8 @@ export function isValidLink(l: string | undefined): boolean {
   const val = l.toLowerCase().trim();
   // Exclude common non-URL values found in spreadsheets
   if (['no', 'n/a', 'non', 'yes', 'oui', 'ok', ''].includes(val)) return false;
+  // Block javascript: schema to prevent XSS injection
+  if (val.startsWith('javascript:')) return false;
   // A valid link should look like a URL
   return val.startsWith('http') || val.startsWith('www') || val.includes('://') || val.includes('.');
 }

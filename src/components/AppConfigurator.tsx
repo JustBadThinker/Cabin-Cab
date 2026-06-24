@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useStore, Boat, Cabin } from '../store';
 import { 
   Settings2, Eye, EyeOff, Trash2, Plus, RefreshCw, CheckCircle, 
-  Wifi, Database, ShieldAlert, Sparkles, X, AlertCircle,
+  Wifi, Database, ShieldAlert, Sparkles, X, AlertCircle, ShieldCheck,
   Lock, Unlock, Key, Image, Search, Mail, Link, Check, Loader2, FileText,
   Download, Upload, Keyboard
 } from 'lucide-react';
@@ -95,14 +95,22 @@ export const AppConfigurator: React.FC<AppConfiguratorProps> = ({ isOpen, onClos
 
   // Compute standard dynamic admin passphrase
   const getAdminPassphrase = () => {
-    return localStorage.getItem('datacenter_admin_password') || 'admin111';
+    return localStorage.getItem('datacenter_admin_password');
+  };
+
+  const handleSetupPasscode = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!password.trim()) return;
+    localStorage.setItem('datacenter_admin_password', password.trim());
+    setIsUnlocked(true);
+    setPassword('');
   };
 
   const handleUnlock = (e: React.FormEvent) => {
     e.preventDefault();
     setPPassError(null);
     const correctPass = getAdminPassphrase();
-    if (password === correctPass) {
+    if (correctPass && password === correctPass) {
       setIsUnlocked(true);
       setPassword('');
     } else {
@@ -869,51 +877,98 @@ export const AppConfigurator: React.FC<AppConfiguratorProps> = ({ isOpen, onClos
         {/* SECURITY GATEWAY LOCK SCREEN */}
         {!isUnlocked ? (
           <div className="flex-1 overflow-y-auto p-8 flex flex-col items-center justify-center space-y-6 text-center max-w-md mx-auto">
-            <div className="p-4 bg-primary/10 text-primary rounded-full animate-bounce">
-              <Lock className="w-8 h-8" />
-            </div>
-            
-            <div className="space-y-1.5">
-              <h2 className="text-lg font-bold text-foreground">Data Center Locked</h2>
-              <p className="text-xs text-muted-foreground">
-                Enter your administrative passcode to verify credentials and access full control options.
-              </p>
-            </div>
-
-            <form onSubmit={handleUnlock} className="w-full space-y-3.5">
-              {pPassError && (
-                <div className="p-2 text-[10px] text-destructive bg-destructive/5 rounded-lg border border-destructive/10 flex items-start gap-1.5 text-left leading-normal">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                  <span>{pPassError}</span>
+            {!getAdminPassphrase() ? (
+              // First-time setup view
+              <>
+                <div className="p-4 bg-amber-500/10 text-amber-500 rounded-full animate-pulse">
+                  <ShieldCheck className="w-8 h-8" />
                 </div>
-              )}
-
-              <div className="space-y-1 text-left">
-                <label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground block">
-                  Operator Passcode
-                </label>
-                <div className="relative">
-                  <input
-                    type="password"
-                    autoFocus
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter admin passcode (default: admin111)"
-                    className="w-full bg-background/55 border border-border text-xs rounded-xl pl-9 pr-4 py-2.5 text-foreground placeholder:text-muted-foreground/45 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
-                  />
-                  <Key className="w-4 h-4 text-muted-foreground/60 absolute left-3 top-3" />
+                
+                <div className="space-y-1.5">
+                  <h2 className="text-lg font-bold text-foreground">Secure Your Data Center</h2>
+                  <p className="text-xs text-muted-foreground">
+                    No passcode is currently set. Create a custom administrator passcode to protect your settings.
+                  </p>
                 </div>
-              </div>
 
-              <button
-                type="submit"
-                className="w-full py-2.5 bg-primary text-primary-foreground hover:bg-primary/95 text-xs font-black uppercase tracking-widest rounded-xl transition-all shadow-sm cursor-pointer flex items-center justify-center gap-1.5"
-              >
-                <Unlock className="w-3.5 h-3.5" />
-                Unlock Access
-              </button>
-            </form>
+                <form onSubmit={handleSetupPasscode} className="w-full space-y-3.5">
+                  <div className="space-y-1 text-left">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground block">
+                      Choose Passcode
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="password"
+                        autoFocus
+                        required
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="Choose a secure passcode"
+                        className="w-full bg-background/55 border border-border text-xs rounded-xl pl-9 pr-4 py-2.5 text-foreground placeholder:text-muted-foreground/45 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                      />
+                      <Key className="w-4 h-4 text-muted-foreground/60 absolute left-3 top-3" />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full py-2.5 bg-primary text-primary-foreground hover:bg-primary/95 text-xs font-black uppercase tracking-widest rounded-xl transition-all shadow-sm cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <Unlock className="w-3.5 h-3.5" />
+                    Save & Unlock
+                  </button>
+                </form>
+              </>
+            ) : (
+              // Normal unlock view
+              <>
+                <div className="p-4 bg-primary/10 text-primary rounded-full animate-bounce">
+                  <Lock className="w-8 h-8" />
+                </div>
+                
+                <div className="space-y-1.5">
+                  <h2 className="text-lg font-bold text-foreground">Data Center Locked</h2>
+                  <p className="text-xs text-muted-foreground">
+                    Enter your administrative passcode to verify credentials and access full control options.
+                  </p>
+                </div>
+
+                <form onSubmit={handleUnlock} className="w-full space-y-3.5">
+                  {pPassError && (
+                    <div className="p-2 text-[10px] text-destructive bg-destructive/5 rounded-lg border border-destructive/10 flex items-start gap-1.5 text-left leading-normal">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                      <span>{pPassError}</span>
+                    </div>
+                  )}
+
+                  <div className="space-y-1 text-left">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground block">
+                      Operator Passcode
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="password"
+                        autoFocus
+                        required
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="Enter admin passcode"
+                        className="w-full bg-background/55 border border-border text-xs rounded-xl pl-9 pr-4 py-2.5 text-foreground placeholder:text-muted-foreground/45 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                      />
+                      <Key className="w-4 h-4 text-muted-foreground/60 absolute left-3 top-3" />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full py-2.5 bg-primary text-primary-foreground hover:bg-primary/95 text-xs font-black uppercase tracking-widest rounded-xl transition-all shadow-sm cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <Unlock className="w-3.5 h-3.5" />
+                    Unlock Access
+                  </button>
+                </form>
+              </>
+            )}
           </div>
         ) : (
           /* UNLOCKED FULL CONTROL CONTENT */
@@ -1758,7 +1813,7 @@ export const AppConfigurator: React.FC<AppConfiguratorProps> = ({ isOpen, onClos
                           required
                           value={newPass}
                           onChange={(e) => setNewPass(e.target.value)}
-                          placeholder="Type new passcode (e.g. admin111)"
+                          placeholder="Type new passcode"
                           className="w-full bg-background border border-border text-xs rounded-xl px-3 py-2 text-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-primary"
                         />
                       </div>
@@ -1773,14 +1828,15 @@ export const AppConfigurator: React.FC<AppConfiguratorProps> = ({ isOpen, onClos
                         <button
                           type="button"
                           onClick={() => {
-                            if (confirm("Restore default password admin111?")) {
+                            if (confirm("Reset administration passcode? This will clear the saved password and lock the panel immediately.")) {
                               localStorage.removeItem('datacenter_admin_password');
-                              setPassFeedback("Restored default passcode: admin111");
+                              setIsUnlocked(false);
+                              setPassFeedback(null);
                             }
                           }}
                           className="px-4 py-1.5 border border-border hover:bg-muted text-xs font-semibold rounded-xl text-muted-foreground transition-all cursor-pointer"
                         >
-                          Reset Default
+                          Reset & Lock Panel
                         </button>
                       </div>
                     </form>
