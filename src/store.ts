@@ -39,6 +39,32 @@ export type Mode = 'CABIN' | 'CHARTER';
 export type FormattingMode = 'DEFAULT' | 'WHATSAPP' | 'EMAIL';
 export type NoteLabel = 'Overbudget' | 'Under-budget' | 'Marathon' | 'Custom Depart' | 'None';
 
+export interface KeyboardShortcuts {
+  focusSearch: string;
+  toggleSpotlight: string;
+  toggleLanguage: string;
+  toggleNotepad: string;
+  toggleGallery: string;
+  toggleVesselSelector: string;
+  toggleInquiry: string;
+  clearCabins: string;
+  resetNotepad: string;
+  copyItinerary: string;
+}
+
+export const DEFAULT_SHORTCUTS: KeyboardShortcuts = {
+  focusSearch: 'q',
+  toggleSpotlight: 'alt+f',
+  toggleLanguage: 'alt+l',
+  toggleNotepad: 'alt+n',
+  toggleGallery: 'alt+g',
+  toggleVesselSelector: 'alt+v',
+  toggleInquiry: 'alt+i',
+  clearCabins: 'alt+c',
+  resetNotepad: 'alt+r',
+  copyItinerary: 'alt+y',
+};
+
 export interface SavedNote {
   id: string;
   title: string;
@@ -95,6 +121,9 @@ interface AppState {
   tabs: TabData[];
   savedNotes: SavedNote[];
   sortPriority: NoteLabel[];
+  customShortcuts: KeyboardShortcuts;
+  setCustomShortcut: (key: keyof KeyboardShortcuts, combination: string) => void;
+  resetShortcuts: () => void;
   
   // Google Drive Images State
   kicFiles: DriveFile[];
@@ -103,6 +132,10 @@ interface AppState {
   imagesError: string | null;
   livePreviewEnabled: boolean;
   setLivePreviewEnabled: (enabled: boolean) => void;
+  selectedLiveFile: DriveFile | null;
+  setSelectedLiveFile: (file: DriveFile | null) => void;
+  displayedFiles: DriveFile[];
+  setDisplayedFiles: (files: DriveFile[]) => void;
   googleUser: User | null;
   googleToken: string | null;
   setGoogleUser: (user: User | null, token: string | null) => void;
@@ -210,6 +243,7 @@ export const useStore = create<AppState>()(
       tabs: [createDefaultTab('default', 'Client 1')],
       savedNotes: [],
       sortPriority: ['Overbudget', 'Marathon', 'Custom Depart', 'Under-budget', 'None'],
+      customShortcuts: DEFAULT_SHORTCUTS,
 
       kicFiles: [],
       lebaliblogFiles: [],
@@ -217,6 +251,10 @@ export const useStore = create<AppState>()(
       imagesError: null,
       livePreviewEnabled: false,
       setLivePreviewEnabled: (enabled) => set({ livePreviewEnabled: enabled }),
+      selectedLiveFile: null,
+      setSelectedLiveFile: (file) => set({ selectedLiveFile: file }),
+      displayedFiles: [],
+      setDisplayedFiles: (files) => set({ displayedFiles: files }),
       googleUser: null,
       googleToken: null,
       setGoogleUser: (user, token) => set({ googleUser: user, googleToken: token }),
@@ -494,9 +532,14 @@ export const useStore = create<AppState>()(
         tabs: [createDefaultTab('default', 'Client 1')],
         savedNotes: [],
         sortPriority: ['Overbudget', 'Marathon', 'Custom Depart', 'Under-budget', 'None'],
+        customShortcuts: DEFAULT_SHORTCUTS,
         kicFiles: [],
         lebaliblogFiles: []
       }),
+      setCustomShortcut: (key, combination) => set((state) => ({
+        customShortcuts: { ...state.customShortcuts, [key]: combination }
+      })),
+      resetShortcuts: () => set({ customShortcuts: DEFAULT_SHORTCUTS }),
     }),
     {
       name: 'boat-cabin-storage-v3',
@@ -505,7 +548,8 @@ export const useStore = create<AppState>()(
         activeTabId: state.activeTabId,
         tabs: state.tabs,
         savedNotes: state.savedNotes,
-        sortPriority: state.sortPriority
+        sortPriority: state.sortPriority,
+        customShortcuts: state.customShortcuts
       }),
     }
   )

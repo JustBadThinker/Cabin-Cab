@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Copy, Check, Bookmark } from 'lucide-react';
 import { useStore, Cabin } from '../store';
 import { cn, translateDate, isValidLink, copyTextToClipboard } from '../lib/utils';
@@ -47,7 +47,7 @@ export const OutputPreview: React.FC = () => {
   };
 
   // In Charter mode, we only need the boat. In Cabin mode, we need at least one cabin.
-  if (!selectedBoat || (mode === 'CABIN' && selectedCabins.length === 0)) return null;
+  const showPreview = !!selectedBoat && (mode !== 'CABIN' || selectedCabins.length > 0);
 
   const translatedDates = translateDate(dates, language);
   const emptyStatusText = isBoatEmpty 
@@ -117,6 +117,7 @@ ${formatLabel('Detail')} : ${link}` : ''}`;
     };
 
     const generateFullOutput = () => {
+      if (!showPreview || !selectedBoat) return '';
       let output = '';
       
       // Collect fuel rates from all sources before cleaning
@@ -237,6 +238,14 @@ ${cabinList}`;
     setTimeout(() => setCopied(false), 2000);
   };
 
+  useEffect(() => {
+    const handleHotkeyCopy = () => {
+      handleCopy();
+    };
+    window.addEventListener('copy-itinerary-hotkey', handleHotkeyCopy);
+    return () => window.removeEventListener('copy-itinerary-hotkey', handleHotkeyCopy);
+  }, [fullOutput]);
+
   const handleSave = () => {
     addNote({
       title: selectedBoatName || 'Untitled Note',
@@ -246,6 +255,8 @@ ${cabinList}`;
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
+
+  if (!showPreview) return null;
 
   const cabinCount = mode === 'CHARTER' ? 1 : selectedCabins.length;
 

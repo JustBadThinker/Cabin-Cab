@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useStore } from '../store';
 import { cn, parseAndFormatInquiryDate } from '../lib/utils';
 import { 
@@ -42,6 +42,14 @@ export const InquiryPanel: React.FC = () => {
       boatClass: '',
     });
   };
+
+  useEffect(() => {
+    const handleHotkeyReset = () => {
+      handleReset();
+    };
+    window.addEventListener('reset-inquiry-parser-hotkey', handleHotkeyReset);
+    return () => window.removeEventListener('reset-inquiry-parser-hotkey', handleHotkeyReset);
+  }, []);
 
   const handleParse = () => {
     const text = rawText.trim();

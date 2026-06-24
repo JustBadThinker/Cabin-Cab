@@ -8,13 +8,14 @@ import { TabSwitcher } from './components/TabSwitcher';
 import { TemplateGenerator } from './components/TemplateGenerator';
 import { OutputPreview } from './components/OutputPreview';
 import { MediaGallery } from './components/MediaGallery';
+import { LivePreviewPanel } from './components/LivePreviewPanel';
 import { Notepad } from './components/Notepad';
 import { ThemeToggle } from './components/ThemeToggle';
 import { AppGuide } from './components/AppGuide';
 import { AppConfigurator } from './components/AppConfigurator';
 import { SpotlightSearch } from './components/SpotlightSearch';
 import { useStore } from './store';
-import { cn } from './lib/utils';
+import { cn, matchShortcut } from './lib/utils';
 import { Ship, Info, LogIn, LogOut, Check, AlertCircle, FileSpreadsheet, Image as ImageIcon, Loader2, HelpCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { googleSignIn, initAuth, logout, getWhitelistedEmails } from './lib/firebase';
@@ -31,7 +32,15 @@ export default function App() {
     setGoogleUser, 
     setKicFiles, 
     setLebaliblogFiles,
-    livePreviewEnabled
+    livePreviewEnabled,
+    customShortcuts,
+    setLanguage,
+    setSelectedCabinIds,
+    clearNotes,
+    toggleShowNotepad,
+    toggleShowMediaGallery,
+    toggleShowBoatCabinSelector,
+    toggleShowInquiryPanel
   } = useStore();
   const [importMode, setImportMode] = useState<'FILE' | 'SHEETS'>('FILE');
   const activeTab = (tabs.find(t => t.id === activeTabId) || tabs[0] || {}) as any;
@@ -60,6 +69,95 @@ export default function App() {
       document.documentElement.classList.remove('dark');
     }
   }, [theme]);
+
+  // Global configured keyboard shortcuts listener
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      const isInput = activeEl && (
+        activeEl.tagName === 'INPUT' || 
+        activeEl.tagName === 'TEXTAREA' || 
+        (activeEl as HTMLElement).isContentEditable
+      );
+
+      const shortcuts = customShortcuts;
+
+      // 1. Copy Itinerary: Alt + Y (Default)
+      if (matchShortcut(e, shortcuts.copyItinerary || 'alt+y')) {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent('copy-itinerary-hotkey'));
+        return;
+      }
+
+      // 2. Clear Cabins: Alt + C (Default)
+      if (matchShortcut(e, shortcuts.clearCabins || 'alt+c')) {
+        e.preventDefault();
+        setSelectedCabinIds([]);
+        return;
+      }
+
+      // 3. Reset Notepad: Alt + R (Default)
+      if (matchShortcut(e, shortcuts.resetNotepad || 'alt+r')) {
+        e.preventDefault();
+        clearNotes();
+        window.dispatchEvent(new CustomEvent('reset-inquiry-parser-hotkey'));
+        return;
+      }
+
+      // 4. Toggle Language: Alt + L (Default)
+      if (matchShortcut(e, shortcuts.toggleLanguage || 'alt+l')) {
+        e.preventDefault();
+        const curLang = activeTab.language || 'FR';
+        setLanguage(curLang === 'FR' ? 'ENG' : 'FR');
+        return;
+      }
+
+      // 5. Toggle Notepad Visibility: Alt + N (Default)
+      if (matchShortcut(e, shortcuts.toggleNotepad || 'alt+n')) {
+        if (isInput) return; // ignore simple single/double triggers in textboxes
+        e.preventDefault();
+        toggleShowNotepad();
+        return;
+      }
+
+      // 6. Toggle Media Gallery Visibility: Alt + G (Default)
+      if (matchShortcut(e, shortcuts.toggleGallery || 'alt+g')) {
+        if (isInput) return;
+        e.preventDefault();
+        toggleShowMediaGallery();
+        return;
+      }
+
+      // 7. Toggle Vessel Selector Visibility: Alt + V (Default)
+      if (matchShortcut(e, shortcuts.toggleVesselSelector || 'alt+v')) {
+        if (isInput) return;
+        e.preventDefault();
+        toggleShowBoatCabinSelector();
+        return;
+      }
+
+      // 8. Toggle Inquiry Parser Visibility: Alt + I (Default)
+      if (matchShortcut(e, shortcuts.toggleInquiry || 'alt+i')) {
+        if (isInput) return;
+        e.preventDefault();
+        toggleShowInquiryPanel();
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [
+    customShortcuts, 
+    activeTab, 
+    setLanguage, 
+    setSelectedCabinIds, 
+    clearNotes, 
+    toggleShowNotepad, 
+    toggleShowMediaGallery, 
+    toggleShowBoatCabinSelector, 
+    toggleShowInquiryPanel
+  ]);
 
   useEffect(() => {
     const hasPrompted = localStorage.getItem('hasPromptedGoogleLogin');
@@ -146,7 +244,10 @@ export default function App() {
     <div className="min-h-screen flex flex-col bg-background text-foreground transition-colors duration-300">
       {/* Header (Not Sticky) */}
       <header className="relative w-full border-b border-border bg-background/80 backdrop-blur-md z-30">
-        <div className="max-w-[1440px] mx-auto px-6 h-auto sm:h-20 min-h-[5rem] py-4 sm:py-0 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className={cn(
+          "mx-auto px-6 h-auto sm:h-20 min-h-[5rem] py-4 sm:py-0 flex flex-col sm:flex-row items-center justify-between gap-4 transition-all duration-500 ease-in-out",
+          livePreviewEnabled ? "max-w-[96%] lg:max-w-[94%] xl:max-w-[92%]" : "max-w-[92%] lg:max-w-[76%] xl:max-w-[70%]"
+        )}>
           <div className="flex items-center gap-3">
             <button 
               onClick={() => setIsConfiguratorOpen(true)}
@@ -235,10 +336,13 @@ export default function App() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-[1440px] mx-auto w-full px-4 sm:px-6 md:px-8 py-12 space-y-16">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 transition-all duration-500 ease-in-out">
+      <main className={cn(
+        "flex-1 mx-auto w-full px-4 sm:px-6 md:px-8 py-12 space-y-16 transition-all duration-500 ease-in-out",
+        livePreviewEnabled ? "max-w-[96%] lg:max-w-[94%] xl:max-w-[92%]" : "max-w-[92%] lg:max-w-[76%] xl:max-w-[70%]"
+      )}>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 xl:gap-12 transition-all duration-500 ease-in-out">
           {/* Left Column: Configuration */}
-          <div className={cn("space-y-12 lg:space-y-16 transition-all duration-500 ease-in-out", livePreviewEnabled ? "lg:col-span-5" : "lg:col-span-7")}>
+          <div className={cn("space-y-12 lg:space-y-16 transition-all duration-500 ease-in-out", livePreviewEnabled ? "lg:col-span-3" : "lg:col-span-7")}>
             <section className="space-y-8">
               <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
                 <div className="space-y-2">
@@ -311,8 +415,8 @@ export default function App() {
             </section>
           </div>
 
-          {/* Right Column: Preview */}
-          <div className={cn("transition-all duration-500 ease-in-out", livePreviewEnabled ? "lg:col-span-7" : "lg:col-span-5")}>
+          {/* Middle/Right Column: Preview */}
+          <div className={cn("transition-all duration-500 ease-in-out", livePreviewEnabled ? "lg:col-span-3" : "lg:col-span-5")}>
             <div className="sticky top-12 space-y-8">
               <div className="space-y-2">
                 <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-bold">Step 04</span>
@@ -345,6 +449,21 @@ export default function App() {
               {showMediaGallery !== false && <MediaGallery />}
             </div>
           </div>
+
+          {/* Right Column: Persistent Active Big Preview Panel */}
+          <AnimatePresence>
+            {livePreviewEnabled && (
+              <motion.div
+                initial={{ opacity: 0, x: 30 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 30 }}
+                transition={{ duration: 0.4, ease: "easeOut" }}
+                className="lg:col-span-6 lg:sticky lg:top-12 self-start h-[calc(100vh-140px)] min-h-[650px] max-h-[850px]"
+              >
+                <LivePreviewPanel />
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
         {showNotepad !== false && <Notepad />}
       </main>

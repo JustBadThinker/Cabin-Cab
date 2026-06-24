@@ -9,7 +9,8 @@ import {
   Image as ImageIcon, 
   BookOpen,
   ArrowRight,
-  Info
+  Info,
+  Keyboard
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -81,6 +82,18 @@ export const AppGuide: React.FC<AppGuideProps> = ({ isOpen, onClose }) => {
         "Sync Google Drive folders directly for auto-fetching boat deck images",
         "Use 'Add Missing Image' to type/paste your own raw web image URLs",
         "Centered, sleek actions let you refresh data with ease"
+      ]
+    },
+    {
+      title: "Keyboard & Hotkeys",
+      subtitle: "Custom Keybinds & Quick Macros",
+      description: "CabinGen supports fully custom hotkey mappings! Toggle language, hide or show any section, empty your cabins list, clear notes, or instantly copy the final formatted itinerary copy with lightning speed.",
+      icon: Keyboard,
+      color: "text-violet-500 bg-violet-500/10",
+      tips: [
+        "Go to Settings -> 'Raccourcis Clavier' to assign any custom hotkeys",
+        "Modifier mappings support simple keydowns or multi-modifier combinations",
+        "Single-key shortcuts (like 'q' to focus the search bar) trigger safely only outside input fields"
       ]
     }
   ];

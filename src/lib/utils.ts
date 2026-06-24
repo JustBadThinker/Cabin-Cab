@@ -274,3 +274,30 @@ export function parseAndFormatInquiryDate(rawDateLine: string, duration?: string
   return `${formattedDays} ${capitalizedMonth} ${year}`;
 }
 
+/**
+ * Matches a KeyboardEvent against a normalized keyboard shortcut string (e.g. "alt+f", "ctrl+shift+a", "q")
+ */
+export function matchShortcut(e: KeyboardEvent, shortcutStr: string): boolean {
+  if (!shortcutStr) return false;
+  const parts = shortcutStr.toLowerCase().split('+');
+  
+  const hasAlt = parts.includes('alt');
+  const hasCtrl = parts.includes('ctrl') || parts.includes('control');
+  const hasShift = parts.includes('shift');
+  const hasMeta = parts.includes('meta') || parts.includes('cmd') || parts.includes('win');
+  
+  // Find primary non-modifier key
+  const primaryKeys = parts.filter(p => !['alt', 'ctrl', 'control', 'shift', 'meta', 'cmd', 'win'].includes(p));
+  const primaryKey = primaryKeys[0] || '';
+  
+  // Compare modifiers
+  if (hasAlt !== e.altKey) return false;
+  if (hasCtrl !== e.ctrlKey) return false;
+  if (hasShift !== e.shiftKey) return false;
+  if (hasMeta !== e.metaKey) return false;
+  
+  // Compare primary key (taking case-insensitivity into account, and checking e.key or e.code if necessary)
+  return e.key.toLowerCase() === primaryKey;
+}
+
+

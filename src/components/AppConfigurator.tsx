@@ -4,7 +4,7 @@ import {
   Settings2, Eye, EyeOff, Trash2, Plus, RefreshCw, CheckCircle, 
   Wifi, Database, ShieldAlert, Sparkles, X, AlertCircle,
   Lock, Unlock, Key, Image, Search, Mail, Link, Check, Loader2, FileText,
-  Download, Upload
+  Download, Upload, Keyboard
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -30,7 +30,10 @@ export const AppConfigurator: React.FC<AppConfiguratorProps> = ({ isOpen, onClos
     addCustomBoat,
     deleteBoat,
     kicFiles,
-    lebaliblogFiles
+    lebaliblogFiles,
+    customShortcuts,
+    setCustomShortcut,
+    resetShortcuts
   } = useStore();
 
   const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0] || {};
@@ -52,7 +55,7 @@ export const AppConfigurator: React.FC<AppConfiguratorProps> = ({ isOpen, onClos
   const [passFeedback, setPassFeedback] = useState<string | null>(null);
 
   // Layout navigation
-  const [subTab, setSubTab] = useState<'vessels' | 'wiring' | 'scanner' | 'whitelist' | 'layout'>('vessels');
+  const [subTab, setSubTab] = useState<'vessels' | 'wiring' | 'scanner' | 'whitelist' | 'layout' | 'shortcuts'>('vessels');
 
   // Vessel management state
   const [showAddForm, setShowAddForm] = useState(false);
@@ -923,7 +926,8 @@ export const AppConfigurator: React.FC<AppConfiguratorProps> = ({ isOpen, onClos
                 { id: 'wiring', label: language === 'FR' ? '🔗 Liens d\'Images' : '🔗 Image Wiring', desc: 'Sync custom image collections' },
                 { id: 'scanner', label: language === 'FR' ? '🔍 Scanner d\'images' : '🔍 Missing Scan', desc: 'Auto-detect missing cabin links' },
                 { id: 'whitelist', label: language === 'FR' ? '👥 Opérateurs WH' : '👥 Whitelist Gmail', desc: 'Manage registered operator list' },
-                { id: 'layout', label: language === 'FR' ? '⚙️ Layout & Sécurité' : '⚙️ Layout & Pass', desc: 'Adjust visibility and lock' }
+                { id: 'layout', label: language === 'FR' ? '⚙️ Layout & Sécurité' : '⚙️ Layout & Pass', desc: 'Adjust visibility and lock' },
+                { id: 'shortcuts', label: language === 'FR' ? '⌨️ Raccourcis Clavier' : '⌨️ Hotkey Shortcuts', desc: 'Change shortcut trigger keys' }
               ].map((btn) => (
                 <button
                   key={btn.id}
@@ -1784,6 +1788,61 @@ export const AppConfigurator: React.FC<AppConfiguratorProps> = ({ isOpen, onClos
                 </div>
               )}
 
+              {/* TAB 6: KEYBOARD SHORTCUTS MANAGER */}
+              {subTab === 'shortcuts' && (
+                <div className="space-y-6 animate-in fade-in duration-200">
+                  <div>
+                    <h5 className="text-[10px] uppercase font-black tracking-widest text-muted-foreground flex items-center gap-1.5">
+                      <Keyboard className="w-4 h-4 text-primary animate-pulse" />
+                      {language === 'FR' ? 'CORRESPONDANCE DES RACCOURCIS CLAVIER' : 'Configure Hotkey Shortcuts'}
+                    </h5>
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      Customize hotkeys for your fast operators workflow. Click on any key badge, and press the new key configuration (e.g. Q, Alt+F, Ctrl+B) to rebind.
+                    </p>
+                  </div>
+
+                  <div className="bg-card border border-border/60 rounded-3xl overflow-hidden p-6 space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {[
+                        { key: 'focusSearch', label: language === 'FR' ? 'Focus la recherche bateau' : 'Focus Vessel Search Bar', desc: language === 'FR' ? 'Focus instantané (Q)' : 'Instantly focus the boat search box' },
+                        { key: 'toggleSpotlight', label: language === 'FR' ? 'Ouvrir Spotlight' : 'Toggle Spotlight Finder', desc: language === 'FR' ? 'Finder global intelligent' : 'Unified global searchable helper overlay' },
+                        { key: 'toggleLanguage', label: language === 'FR' ? 'Changer de langue FR/ENG' : 'Toggle Language FR/ENG', desc: language === 'FR' ? 'Alternative FR <-> EN' : 'Switch generator output translation language' },
+                        { key: 'toggleNotepad', label: language === 'FR' ? 'Masquer / Afficher Bloc-notes' : 'Toggle Notepad Visibility', desc: language === 'FR' ? 'Toggle section du Bloc-notes' : 'Show or hide the Smart WhatsApp Notepad panel' },
+                        { key: 'toggleGallery', label: language === 'FR' ? 'Masquer / Afficher Galerie média' : 'Toggle Gallery Visibility', desc: language === 'FR' ? 'Toggle section Galerie média' : 'Show or hide the Media image gallery panel' },
+                        { key: 'toggleVesselSelector', label: language === 'FR' ? 'Masquer / Afficher Sélectionneur bateau' : 'Toggle Selector Visibility', desc: language === 'FR' ? 'Toggle section Sélectionneur navires' : 'Show or hide the Boat and cabin search select panel' },
+                        { key: 'toggleInquiry', label: language === 'FR' ? 'Masquer / Afficher Parseur WhatsApp' : 'Toggle Inquiry Parser Visibility', desc: language === 'FR' ? 'Toggle section Formulaire' : 'Show or hide the inquiry field card forms' },
+                        { key: 'clearCabins', label: language === 'FR' ? 'Vider la sélection de cabines' : 'Clear Cabins Selection', desc: language === 'FR' ? 'Désélectionner toutes les cabines' : 'Unselect all selected cabins immediately' },
+                        { key: 'resetNotepad', label: language === 'FR' ? 'Réinitialiser le Bloc-notes' : 'Reset Notepad Content', desc: language === 'FR' ? 'Vider tout le notepad' : 'Reset smart WhatsApp parsing fields and contents' },
+                        { key: 'copyItinerary', label: language === 'FR' ? 'Copier le texte de l\'itinéraire' : 'Copy Generated Itinerary', desc: language === 'FR' ? 'Copie instantanée dans le presse-papiers' : 'Quickly copy the processed template' }
+                      ].map((sc) => (
+                        <ShortcutRow
+                          key={sc.key}
+                          scKey={sc.key}
+                          label={sc.label}
+                          desc={sc.desc}
+                          currentVal={customShortcuts?.[sc.key as keyof typeof customShortcuts] || ''}
+                          language={language}
+                          onSetShortcut={setCustomShortcut}
+                        />
+                      ))}
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between border-t border-border/40 pt-5 mt-4 gap-3">
+                      <p className="text-[9px] text-muted-foreground uppercase tracking-widest font-bold">
+                        {language === 'FR' ? '*Les touches simples comme "q" s\'activent hors saisie texte' : '*Single key hotkeys (like "q") trigger only outside text inputs'}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={resetShortcuts}
+                        className="px-4 py-1.5 border border-primary/20 hover:bg-primary/5 text-primary text-xs font-semibold rounded-xl transition-all cursor-pointer"
+                      >
+                        {language === 'FR' ? 'Réinitialiser par défaut' : 'Restore Default Hotkeys'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
             </div>
           </div>
         )}
@@ -1819,3 +1878,80 @@ export const AppConfigurator: React.FC<AppConfiguratorProps> = ({ isOpen, onClos
     </div>
   );
 };
+
+interface ShortcutRowProps {
+  scKey: string;
+  label: string;
+  desc: string;
+  currentVal: string;
+  language: string;
+  onSetShortcut: (key: any, value: string) => void;
+}
+
+const ShortcutRow: React.FC<ShortcutRowProps> = ({ scKey, label, desc, currentVal, language, onSetShortcut }) => {
+  const [recording, setRecording] = useState(false);
+
+  useEffect(() => {
+    if (!recording) return;
+
+    const captureKeys = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      const key = e.key.toLowerCase();
+      if (['control', 'alt', 'shift', 'meta'].includes(key)) {
+        return;
+      }
+
+      const keys: string[] = [];
+      if (e.ctrlKey) keys.push('ctrl');
+      if (e.altKey) keys.push('alt');
+      if (e.shiftKey) keys.push('shift');
+      if (e.metaKey) keys.push('meta');
+      keys.push(key);
+
+      const combination = keys.join('+');
+      onSetShortcut(scKey, combination);
+      setRecording(false);
+    };
+
+    window.addEventListener('keydown', captureKeys, true);
+    return () => window.removeEventListener('keydown', captureKeys, true);
+  }, [recording, scKey, onSetShortcut]);
+
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-2xl border border-border/50 bg-muted/10 gap-3">
+      <div className="space-y-0.5">
+        <p className="text-[11px] font-bold text-foreground">{label}</p>
+        <p className="text-[9px] text-muted-foreground leading-relaxed">{desc}</p>
+      </div>
+
+      <div className="flex items-center gap-2">
+        {recording ? (
+          <span className="px-3.5 py-1.5 text-[10px] font-bold select-none text-rose-500 bg-rose-500/10 rounded-xl border border-rose-500/25 animate-pulse">
+            {language === 'FR' ? 'Appuyez...' : 'Press keys...'}
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setRecording(true)}
+            className="px-3 py-1.5 bg-card hover:bg-muted border border-border text-[11px] font-mono font-black rounded-xl text-foreground uppercase shadow-xs transition-all cursor-pointer relative group flex items-center justify-center min-w-[90px]"
+          >
+            {currentVal ? currentVal.replace(/\+/g, ' + ') : 'NONE'}
+          </button>
+        )}
+
+        <button
+          type="button"
+          onClick={() => onSetShortcut(scKey, '')}
+          disabled={!currentVal}
+          title="Clear Bind"
+          className="p-1.5 text-muted-foreground hover:text-destructive disabled:opacity-30 rounded-lg hover:bg-destructive/5 transition-colors cursor-pointer"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+};
+

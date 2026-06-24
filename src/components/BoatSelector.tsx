@@ -1,7 +1,7 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Search, Anchor, X, CalendarX, CalendarCheck, Ship, Check, Sparkles } from 'lucide-react';
 import { useStore, Cabin, Boat } from '../store';
-import { cn } from '../lib/utils';
+import { cn, matchShortcut } from '../lib/utils';
 import Fuse from 'fuse.js';
 import { motion, AnimatePresence } from 'motion/react';
 import { CabinList } from './CabinList';
@@ -13,7 +13,8 @@ export const BoatSelector: React.FC = () => {
     activeTabId, 
     setSelectedBoatName, 
     toggleBoatAvailability, 
-    setActiveSectionTab 
+    setActiveSectionTab,
+    customShortcuts
   } = useStore();
   
   const activeTab = (tabs.find(t => t.id === activeTabId) || tabs[0] || {}) as any;
@@ -27,15 +28,55 @@ export const BoatSelector: React.FC = () => {
 
   const [search, setSearch] = useState('');
   const [selectorTab, setSelectorTab] = useState<'BOATS' | 'CABINS'>('BOATS');
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Sync with store's activeSectionTab
+  // Focus search input on shortcut key press (defaults to Q)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      const isInput = activeEl && (
+        activeEl.tagName === 'INPUT' || 
+        activeEl.tagName === 'TEXTAREA' || 
+        (activeEl as HTMLElement).isContentEditable
+      );
+      if (isInput) return;
+
+      const triggerKey = customShortcuts?.focusSearch || 'q';
+      const isMatch = triggerKey.includes('+')
+        ? matchShortcut(e, triggerKey)
+        : (e.key.toLowerCase() === triggerKey.toLowerCase() && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey);
+
+      if (isMatch) {
+        e.preventDefault();
+        setSelectorTab('BOATS');
+        setActiveSectionTab('BOATS');
+        setTimeout(() => {
+          searchInputRef.current?.focus();
+          searchInputRef.current?.select();
+        }, 30);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [customShortcuts, setActiveSectionTab]);
+
+  // Sync with store's activeSectionTab and blur search input when switching to cabins view
   useEffect(() => {
     if (activeSectionTab === 'CABINS' && selectedBoatName) {
       setSelectorTab('CABINS');
+      searchInputRef.current?.blur();
     } else if (activeSectionTab === 'BOATS') {
       setSelectorTab('BOATS');
     }
   }, [activeSectionTab, selectedBoatName]);
+
+  // Ensure search input is blurred whenever selectorTab changes to CABINS
+  useEffect(() => {
+    if (selectorTab === 'CABINS') {
+      searchInputRef.current?.blur();
+    }
+  }, [selectorTab]);
 
   // Fuse search for boats
   const fuse = useMemo(() => new Fuse(boats, {
@@ -48,6 +89,45 @@ export const BoatSelector: React.FC = () => {
     return fuse.search(search).map(result => result.item);
   }, [search, boats, fuse]);
 
+  // Autocomplete based on Google Sheets loaded boat names
+  const autocompleteMatch = useMemo(() => {
+    if (!search.trim() || selectorTab !== 'BOATS') return null;
+    const query = search.toLowerCase();
+    const match = boats.find(b => b.name.toLowerCase().startsWith(query) && b.name.toLowerCase() !== query);
+    return match ? match.name : null;
+  }, [search, boats, selectorTab]);
+
+  // Keyboard number shortcuts 1-9 for choosing boats in the search results
+  useEffect(() => {
+    if (selectorTab !== 'BOATS') return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      const isInputOtherThanSearch = activeEl && (
+        activeEl !== searchInputRef.current && (
+          activeEl.tagName === 'INPUT' || 
+          activeEl.tagName === 'TEXTAREA' || 
+          (activeEl as HTMLElement).isContentEditable
+        )
+      );
+      if (isInputOtherThanSearch) return;
+
+      if (/^[1-9]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
+        const index = parseInt(e.key) - 1;
+        if (index < filteredBoats.length) {
+          e.preventDefault();
+          const targetBoat = filteredBoats[index];
+          setSelectedBoatName(targetBoat.name);
+          setSelectorTab('CABINS');
+          setActiveSectionTab('CABINS');
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectorTab, filteredBoats, setSelectedBoatName, setActiveSectionTab]);
+
   if (boats.length === 0) return null;
 
   return (
@@ -56,7 +136,19 @@ export const BoatSelector: React.FC = () => {
       <div className="space-y-2.5">
         <div className="relative group">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground transition-colors group-focus-within:text-primary" />
+          
+          {autocompleteMatch && (
+            <div className="absolute right-12 top-1/2 -translate-y-1/2 flex items-center gap-1.5 bg-primary/10 border border-primary/20 text-primary dark:text-primary-foreground px-2.5 py-1 rounded-xl text-xs font-bold font-sans pointer-events-none select-none shadow-xs animate-fade-in z-10">
+              <span className="opacity-70 font-sans">{language === 'FR' ? "Bateau suggéré :" : "Suggest:"}</span>
+              <span className="text-foreground font-black font-sans">{autocompleteMatch}</span>
+              <kbd className="ml-1 px-1.5 py-0.5 rounded border border-primary/30 bg-background text-[10px] font-sans font-black shadow-2xs uppercase leading-none h-4 flex items-center text-primary dark:text-primary-foreground">
+                Tab
+              </kbd>
+            </div>
+          )}
+
           <input
+            ref={searchInputRef}
             type="text"
             placeholder={
               selectorTab === 'CABINS'
@@ -85,6 +177,12 @@ export const BoatSelector: React.FC = () => {
                 setActiveSectionTab('BOATS');
               }
             }}
+            onKeyDown={(e) => {
+              if (e.key === 'Tab' && autocompleteMatch) {
+                e.preventDefault();
+                setSearch(autocompleteMatch);
+              }
+            }}
             className="w-full h-14 pl-12 pr-12 rounded-2xl border border-border bg-card/50 backdrop-blur-sm focus:outline-none focus:ring-4 focus:ring-primary/5 focus:border-primary transition-all text-sm animate-fade-in"
           />
           <AnimatePresence>
@@ -105,24 +203,22 @@ export const BoatSelector: React.FC = () => {
         </div>
 
         {/* Keyboard shortcut notice */}
-        <div className="flex items-center gap-1 px-1 text-[11px] text-muted-foreground/90 font-medium">
-          <Sparkles className="w-3.5 h-3.5 text-amber-500/80 shrink-0 mr-0.5" />
+        <div className="flex flex-wrap items-center gap-y-1 gap-x-1.5 px-1 text-[11px] text-muted-foreground/90 font-medium">
+          <Sparkles className="w-3.5 h-3.5 text-amber-500/80 shrink-0 mr-0.5 animate-pulse" />
           <span>
-            {language === 'FR'
-              ? "Recherche instantanée : presser "
-              : "Search instant: press "}
+            {language === 'FR' ? "Instant : presser" : "Instant: press"}
           </span>
-          <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted/65 text-[10px] font-bold font-mono text-foreground shadow-sm">
-            Alt
-          </kbd>
-          <span className="text-muted-foreground/60">+</span>
-          <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted/65 text-[10px] font-bold font-mono text-foreground shadow-sm">
-            F
+          <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted/65 text-[10px] font-bold font-mono text-foreground shadow-sm uppercase">
+            {customShortcuts?.focusSearch || 'q'}
           </kbd>
           <span>
-            {language === 'FR'
-              ? " (ou Option ⌥ + F sur Mac) pour trouver bateau/cabine"
-              : " (or Option ⌥ + F on Mac) to search any boat/cabin"}
+            {language === 'FR' ? "pour focus la recherche, ou" : "to focus search, or"}
+          </span>
+          <kbd className="px-1.5 py-0.5 rounded border border-border bg-muted/65 text-[10px] font-bold font-mono text-foreground shadow-sm uppercase">
+            {(customShortcuts?.toggleSpotlight || 'alt+f').replace(/\+/g, ' + ')}
+          </kbd>
+          <span>
+            {language === 'FR' ? "pour Spotlight" : "for Spotlight"}
           </span>
         </div>
       </div>
@@ -187,8 +283,9 @@ export const BoatSelector: React.FC = () => {
             transition={{ duration: 0.15 }}
             className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[320px] overflow-y-auto pr-2 custom-scrollbar"
           >
-            {filteredBoats.map((boat) => {
+            {filteredBoats.map((boat, index) => {
               const isUnavailable = unavailableBoatNames?.includes(boat.name);
+              const itemIndex = index + 1;
               return (
                 <div
                   key={boat.name}
@@ -197,11 +294,13 @@ export const BoatSelector: React.FC = () => {
                   onClick={() => {
                     setSelectedBoatName(boat.name);
                     setSelectorTab('CABINS');
+                    setActiveSectionTab('CABINS');
                   }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       setSelectedBoatName(boat.name);
                       setSelectorTab('CABINS');
+                      setActiveSectionTab('CABINS');
                     }
                   }}
                   className={cn(
@@ -213,13 +312,23 @@ export const BoatSelector: React.FC = () => {
                   )}
                 >
                   <div className={cn(
-                    "p-2 rounded-xl transition-colors",
+                    "p-2 rounded-xl transition-colors flex items-center gap-1.5",
                     selectedBoatName === boat.name ? "bg-white/20" : "bg-muted group-hover:bg-primary/5"
                   )}>
                     <Anchor className={cn("w-4 h-4", selectedBoatName === boat.name ? "text-white" : "text-muted-foreground group-hover:text-primary")} />
                   </div>
                   
-                  <div className="flex-1 min-w-0 pr-6">
+                  <div className="flex-1 min-w-0 pr-6 flex items-center gap-2">
+                    {itemIndex <= 9 && (
+                      <kbd className={cn(
+                        "px-2 py-0.5 rounded-md border text-[10px] font-extrabold font-mono tracking-wide select-none pointer-events-none transition-colors shrink-0 shadow-2xs",
+                        selectedBoatName === boat.name
+                          ? "border-white/40 bg-white/10 text-white"
+                          : "border-border bg-muted text-muted-foreground/80 group-hover:bg-primary/10 group-hover:text-primary group-hover:border-primary/30"
+                      )}>
+                        {itemIndex}
+                      </kbd>
+                    )}
                     <span className={cn(
                       "text-sm font-medium truncate block",
                       isUnavailable && "line-through opacity-70"

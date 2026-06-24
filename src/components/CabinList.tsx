@@ -32,6 +32,39 @@ export const CabinList: React.FC = () => {
 
   if (!selectedBoat) return null;
 
+  // Listen to 1-9 keyboard hotkeys to select/toggle cabins
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      const isInput = activeEl && (
+        activeEl.tagName === 'INPUT' || 
+        activeEl.tagName === 'TEXTAREA' || 
+        (activeEl as HTMLElement).isContentEditable
+      );
+      if (isInput) return;
+
+      if (/^[1-9]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
+        const index = parseInt(e.key) - 1;
+        if (index < selectedBoat.cabins.length) {
+          e.preventDefault();
+          const targetCabin = selectedBoat.cabins[index];
+          const isUnavailable = unavailableCabinIds?.includes(targetCabin.id);
+          if (!isUnavailable) {
+            const ids = selectedCabinIds || [];
+            if (ids?.includes(targetCabin.id)) {
+              setSelectedCabinIds(ids.filter(cid => cid !== targetCabin.id));
+            } else {
+              setSelectedCabinIds([...ids, targetCabin.id]);
+            }
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedBoat, selectedCabinIds, unavailableCabinIds, setSelectedCabinIds]);
+
   const handleDecrementCabin = (id: string) => {
     const { count = 1 } = cabinSelections[id] || {};
     useStore.getState().setCabinSelectionCount(id, count - 1);
@@ -101,10 +134,11 @@ export const CabinList: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 gap-4 max-h-[420px] overflow-y-auto pr-2 custom-scrollbar">
-        {selectedBoat.cabins.map((cabin) => {
+        {selectedBoat.cabins.map((cabin, index) => {
           const isSelected = (selectedCabinIds || [])?.includes(cabin.id);
           const isUnavailable = unavailableCabinIds?.includes(cabin.id);
           const { count = 1, extraBeds = 0 } = cabinSelections[cabin.id] || {};
+          const itemIndex = index + 1;
 
           const cabinName = language === 'ENG' && cabin.nameEng ? cabin.nameEng : cabin.name;
 
@@ -133,6 +167,16 @@ export const CabinList: React.FC = () => {
                     isSelected ? "text-primary" : "text-foreground",
                     isUnavailable && "line-through opacity-70"
                   )}>
+                    {itemIndex <= 9 && (
+                      <kbd className={cn(
+                        "px-2 py-0.5 rounded-md border text-[10px] font-extrabold font-mono tracking-wide select-none pointer-events-none transition-colors shadow-2xs shrink-0",
+                        isSelected
+                          ? "border-primary/40 bg-primary/10 text-primary"
+                          : "border-border bg-muted text-muted-foreground/80"
+                      )}>
+                        {itemIndex}
+                      </kbd>
+                    )}
                     {cabinName}
                     {isUnavailable && (
                       <span className="inline-flex px-1.5 py-0.5 rounded bg-destructive/10 text-destructive text-[8px] font-black uppercase tracking-tighter line-normal">

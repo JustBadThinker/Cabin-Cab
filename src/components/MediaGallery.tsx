@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore, DriveFile, Cabin } from '../store';
 import { cn, copyImageToClipboard, copyTextToClipboard } from '../lib/utils';
@@ -40,7 +40,10 @@ export const MediaGallery: React.FC = () => {
     loadingImages, 
     imagesError,
     livePreviewEnabled,
-    setLivePreviewEnabled
+    setLivePreviewEnabled,
+    selectedLiveFile,
+    setSelectedLiveFile,
+    setDisplayedFiles
   } = useStore();
 
   const activeTab = (tabs.find(t => t.id === activeTabId) || tabs[0] || {}) as any;
@@ -80,9 +83,6 @@ export const MediaGallery: React.FC = () => {
   const [expandedListIds, setExpandedListIds] = useState<Record<string, boolean>>({});
   const [selectedPreviewFile, setSelectedPreviewFile] = useState<DriveFile | null>(null);
   const [modalCopyFeedback, setModalCopyFeedback] = useState<'IMAGE' | 'LINK' | 'FAILED' | null>(null);
-
-  // Live Picture Preview states
-  const [selectedLiveFile, setSelectedLiveFile] = useState<DriveFile | null>(null);
 
   const handleImageSelect = (file: DriveFile) => {
     if (livePreviewEnabled) {
@@ -424,54 +424,6 @@ export const MediaGallery: React.FC = () => {
 
   const currentFiles = activeFolderTab === 'KIC' ? kicFiles : lebaliblogFiles;
   
-  // Filter current files: must match the selected boat keyword or aliases
-  const filteredFiles = currentFiles.filter((file) => {
-    const fileName = (file.name || '').toLowerCase();
-    
-    const possibleBoatNames = getExtendedAliases(selectedBoatName);
-    if (possibleBoatNames.some(boatAlias => isMatchWithFlexibility(fileName, boatAlias))) {
-      return true;
-    }
-    
-    return false;
-  });
-
-  // Create synthetic DriveFile objects for wired URLs
-  const syntheticWiredFiles: DriveFile[] = (wiredUrls || []).map((url, index) => {
-    let name = `Wired Image ${index + 1}`;
-    
-    // Attempt lookup in existing drive files using file ID
-    const driveId = getDriveFileId(url);
-    if (driveId) {
-      const allLoadedFiles = [...kicFiles, ...lebaliblogFiles];
-      const foundFile = allLoadedFiles.find(f => f.id === driveId);
-      if (foundFile && foundFile.name) {
-        name = foundFile.name;
-      }
-    }
-
-    if (name === `Wired Image ${index + 1}`) {
-      try {
-        const parsed = new URL(url);
-        const filename = parsed.pathname.substring(parsed.pathname.lastIndexOf('/') + 1);
-        if (filename && filename.includes('.')) {
-          name = decodeURIComponent(filename);
-        }
-      } catch {
-        // disregard
-      }
-    }
-
-    return {
-      id: url, // Use URL itself as the ID so download/copy handlers handle it directly
-      name: name,
-      mimeType: 'image/jpeg',
-      thumbnailLink: url,
-      webViewLink: url,
-      webContentLink: url
-    };
-  });
-
   const getSignificantWords = (nameStr: string): string[] => {
     if (!nameStr) return [];
     // Convert to lowercase, remove accents, and replace non-alphanumeric with spaces
@@ -484,91 +436,159 @@ export const MediaGallery: React.FC = () => {
     return list.filter(w => w.length >= 2 && !excludeWords.includes(w));
   };
 
-  // Combine drive filtered files with custom wired files
-  const combinedFiles = [...filteredFiles, ...syntheticWiredFiles];
-
-  // Filter combinedFiles by selected cabins if the user is in CABIN mode and some cabins are selected
-  const selectedBoat = boats.find(b => b.name === selectedBoatName);
-  const selectedCabinIds = activeTab.selectedCabinIds || [];
-
-  const displayedFiles = combinedFiles.filter((file) => {
-    // Custom wired images (starting with http) always bypass the filename-based cabin filter
-    // because they are manually linked to this boat by the operator.
-    if (file.id.startsWith('http://') || file.id.startsWith('https://')) {
-      return true;
-    }
-
-    if (activeTab.mode !== 'CABIN' || !selectedCabinIds || selectedCabinIds.length === 0 || !enableCabinFilter) {
-      return true;
-    }
-
-    const selectedCabins = selectedBoat?.cabins.filter(c => selectedCabinIds.includes(c.id)) || [];
-    if (selectedCabins.length === 0) return true;
-
-    return selectedCabins.some(cabin => {
-      const fileNameLower = removeAccents(file.name || '').toLowerCase();
-      const cabinNameLower = removeAccents(language === 'ENG' && cabin.nameEng ? cabin.nameEng : cabin.name).toLowerCase();
-      const cabinNameOrigLower = removeAccents(cabin.name || '').toLowerCase();
-      const cabinNameEngLower = removeAccents(cabin.nameEng || '').toLowerCase();
-
-      // Check if both the file and the cabin specify a schedule. If so, they MUST match!
-      // This prevents cross-matching between 2D1N and 3D2N schedules
-      const cabinSchedule = getCabinSchedule(cabin);
-      const fileSchedule = getScheduleType(file.name);
-      if (cabinSchedule && fileSchedule && cabinSchedule !== fileSchedule) {
-        return false;
-      }
-
-      // 1. First, check if exact names match perfectly
-      if (fileNameLower.includes(cabinNameLower) || 
-          fileNameLower.includes(cabinNameOrigLower) || 
-          (cabinNameEngLower && fileNameLower.includes(cabinNameEngLower))) {
+  // Filter current files: must match the selected boat keyword or aliases
+  const filteredFiles = useMemo(() => {
+    return currentFiles.filter((file) => {
+      const fileName = (file.name || '').toLowerCase();
+      
+      const possibleBoatNames = getExtendedAliases(selectedBoatName);
+      if (possibleBoatNames.some(boatAlias => isMatchWithFlexibility(fileName, boatAlias))) {
         return true;
       }
+      
+      return false;
+    });
+  }, [currentFiles, selectedBoatName]);
 
-      // 2. Fallback to word token/word-by-word match if enabled
-      if (cabinFilterWordByWord) {
-        // Extract words from all versions of the cabin name
-        const sigWords1 = getSignificantWords(cabinNameLower);
-        const sigWords2 = getSignificantWords(cabinNameOrigLower);
-        const sigWords3 = cabinNameEngLower ? getSignificantWords(cabinNameEngLower) : [];
-        const allSigWords = Array.from(new Set([...sigWords1, ...sigWords2, ...sigWords3]));
-
-        if (allSigWords.length > 0) {
-          // If any of our key words is matched in the filename as a full token, return true!
-          if (allSigWords.every(word => fileNameLower.includes(word))) {
-            return true;
-          }
-          // Also check if any key word matches if name is a single word
-          if (allSigWords.length === 1 && allSigWords.some(word => fileNameLower.includes(word))) {
-            return true;
-          }
+  // Create synthetic DriveFile objects for wired URLs
+  const syntheticWiredFiles = useMemo(() => {
+    return (wiredUrls || []).map((url, index) => {
+      let name = `Wired Image ${index + 1}`;
+      
+      // Attempt lookup in existing drive files using file ID
+      const driveId = getDriveFileId(url);
+      if (driveId) {
+        const allLoadedFiles = [...kicFiles, ...lebaliblogFiles];
+        const foundFile = allLoadedFiles.find(f => f.id === driveId);
+        if (foundFile && foundFile.name) {
+          name = foundFile.name;
         }
       }
 
-      // 3. Match based on cabin link references matching the file ID/URL
-      const driveId = getDriveFileId(file.id) || file.id;
+      if (name === `Wired Image ${index + 1}`) {
+        try {
+          const parsed = new URL(url);
+          const filename = parsed.pathname.substring(parsed.pathname.lastIndexOf('/') + 1);
+          if (filename && filename.includes('.')) {
+            name = decodeURIComponent(filename);
+          }
+        } catch {
+          // disregard
+        }
+      }
 
-      const matchesLink = (linkStr: string | undefined): boolean => {
-        if (!linkStr) return false;
-        const cleanLink = linkStr.trim();
-        if (['no', 'n/a', 'non', ''].includes(cleanLink.toLowerCase())) return false;
-
-        if (cleanLink.includes(driveId) || driveId.includes(cleanLink)) return true;
-
-        const cabinDriveId = getDriveFileId(cleanLink);
-        if (cabinDriveId && cabinDriveId === driveId) return true;
-
-        return false;
+      return {
+        id: url, // Use URL itself as the ID so download/copy handlers handle it directly
+        name: name,
+        mimeType: 'image/jpeg',
+        thumbnailLink: url,
+        webViewLink: url,
+        webContentLink: url
       };
+    });
+  }, [wiredUrls, kicFiles, lebaliblogFiles]);
 
-      if (matchesLink(cabin.link) || matchesLink(cabin.linkEng)) {
+  // Combine drive filtered files with custom wired files
+  const combinedFiles = useMemo(() => {
+    return [...filteredFiles, ...syntheticWiredFiles];
+  }, [filteredFiles, syntheticWiredFiles]);
+
+  // Filter combinedFiles by selected cabins if the user is in CABIN mode and some cabins are selected
+  const selectedBoat = useMemo(() => {
+    return boats.find(b => b.name === selectedBoatName);
+  }, [boats, selectedBoatName]);
+
+  const selectedCabinIds = activeTab.selectedCabinIds || [];
+
+  const displayedFiles = useMemo(() => {
+    return combinedFiles.filter((file) => {
+      // Custom wired images (starting with http) always bypass the filename-based cabin filter
+      // because they are manually linked to this boat by the operator.
+      if (file.id.startsWith('http://') || file.id.startsWith('https://')) {
         return true;
       }
 
-      return false;
+      if (activeTab.mode !== 'CABIN' || !selectedCabinIds || selectedCabinIds.length === 0 || !enableCabinFilter) {
+        return true;
+      }
+
+      const selectedCabins = selectedBoat?.cabins.filter(c => selectedCabinIds.includes(c.id)) || [];
+      if (selectedCabins.length === 0) return true;
+
+      return selectedCabins.some(cabin => {
+        const fileNameLower = removeAccents(file.name || '').toLowerCase();
+        const cabinNameLower = removeAccents(language === 'ENG' && cabin.nameEng ? cabin.nameEng : cabin.name).toLowerCase();
+        const cabinNameOrigLower = removeAccents(cabin.name || '').toLowerCase();
+        const cabinNameEngLower = removeAccents(cabin.nameEng || '').toLowerCase();
+
+        // Check if both the file and the cabin specify a schedule. If so, they MUST match!
+        // This prevents cross-matching between 2D1N and 3D2N schedules
+        const cabinSchedule = getCabinSchedule(cabin);
+        const fileSchedule = getScheduleType(file.name);
+        if (cabinSchedule && fileSchedule && cabinSchedule !== fileSchedule) {
+          return false;
+        }
+
+        // 1. First, check if exact names match perfectly
+        if (fileNameLower.includes(cabinNameLower) || 
+            fileNameLower.includes(cabinNameOrigLower) || 
+            (cabinNameEngLower && fileNameLower.includes(cabinNameEngLower))) {
+          return true;
+        }
+
+        // 2. Fallback to word token/word-by-word match if enabled
+        if (cabinFilterWordByWord) {
+          // Extract words from all versions of the cabin name
+          const sigWords1 = getSignificantWords(cabinNameLower);
+          const sigWords2 = getSignificantWords(cabinNameOrigLower);
+          const sigWords3 = cabinNameEngLower ? getSignificantWords(cabinNameEngLower) : [];
+          const allSigWords = Array.from(new Set([...sigWords1, ...sigWords2, ...sigWords3]));
+
+          if (allSigWords.length > 0) {
+            // If any of our key words is matched in the filename as a full token, return true!
+            if (allSigWords.every(word => fileNameLower.includes(word))) {
+              return true;
+            }
+            // Also check if any key word matches if name is a single word
+            if (allSigWords.length === 1 && allSigWords.some(word => fileNameLower.includes(word))) {
+              return true;
+            }
+          }
+        }
+
+        // 3. Match based on cabin link references matching the file ID/URL
+        const driveId = getDriveFileId(file.id) || file.id;
+
+        const matchesLink = (linkStr: string | undefined): boolean => {
+          if (!linkStr) return false;
+          const cleanLink = linkStr.trim();
+          if (['no', 'n/a', 'non', ''].includes(cleanLink.toLowerCase())) return false;
+
+          if (cleanLink.includes(driveId) || driveId.includes(cleanLink)) return true;
+
+          const cabinDriveId = getDriveFileId(cleanLink);
+          if (cabinDriveId && cabinDriveId === driveId) return true;
+
+          return false;
+        };
+
+        if (matchesLink(cabin.link) || matchesLink(cabin.linkEng)) {
+          return true;
+        }
+
+        return false;
+      });
     });
-  });
+  }, [combinedFiles, activeTab.mode, selectedCabinIds, enableCabinFilter, selectedBoat, language, cabinFilterWordByWord]);
+
+  useEffect(() => {
+    const storeDisplayedFiles = useStore.getState().displayedFiles;
+    const isSame = storeDisplayedFiles.length === displayedFiles.length && 
+                   storeDisplayedFiles.every((val, idx) => val.id === displayedFiles[idx]?.id);
+    if (!isSame) {
+      setDisplayedFiles(displayedFiles);
+    }
+  }, [displayedFiles, setDisplayedFiles]);
 
   const handleCopyImage = async (file: DriveFile, event: React.MouseEvent) => {
     event.stopPropagation();
@@ -636,9 +656,11 @@ export const MediaGallery: React.FC = () => {
         setSelectedLiveFile(displayedFiles[0]);
       }
     } else {
-      setSelectedLiveFile(null);
+      if (selectedLiveFile !== null) {
+        setSelectedLiveFile(null);
+      }
     }
-  }, [displayedFiles, livePreviewEnabled]);
+  }, [displayedFiles, livePreviewEnabled, selectedLiveFile, setSelectedLiveFile]);
 
   const toggleListExpand = (id: string) => {
     setExpandedListIds(prev => ({ ...prev, [id]: !prev[id] }));
@@ -1009,15 +1031,9 @@ export const MediaGallery: React.FC = () => {
           </p>
         </div>
       ) : (
-        <div className={cn(
-          "grid grid-cols-1 gap-6",
-          livePreviewEnabled && "xl:grid-cols-12 xl:gap-6"
-        )}>
-          {/* Thumbnail grid column */}
-          <div className={cn(
-            "max-h-[500px] overflow-y-auto pr-2 custom-scrollbar transition-all duration-500 ease-in-out",
-            livePreviewEnabled ? "xl:col-span-5" : "col-span-1"
-          )}>
+        <div>
+          {/* Thumbnail grid container */}
+          <div className="max-h-[550px] overflow-y-auto pr-2 custom-scrollbar transition-all duration-500 ease-in-out">
             {/* 1. LIST VIEW (Accordions with collapsibility) */}
             {viewMode === 'list' && (
               <div className="space-y-2">
@@ -1449,142 +1465,6 @@ export const MediaGallery: React.FC = () => {
               </div>
             )}
           </div>
-
-          {/* Live Preview Persistent Column */}
-          {livePreviewEnabled && (
-            <div className="xl:col-span-7 h-[500px] flex flex-col border border-border bg-card rounded-2xl overflow-hidden shadow-md sticky top-[100px] transition-all duration-500 ease-in-out">
-              {/* Header */}
-              <div className="px-4 py-3 bg-muted/40 border-b border-border flex items-center justify-between gap-2 shrink-0">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse shrink-0" />
-                  <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground truncate">
-                    {language === 'FR' ? "Grand Aperçu Actif" : "Active Live Preview"}
-                  </span>
-                </div>
-                <button
-                  onClick={() => setLivePreviewEnabled(false)}
-                  className="p-1 hover:bg-muted text-muted-foreground hover:text-foreground rounded-lg transition-colors cursor-pointer"
-                  title="Close Live Preview"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
-              {/* Body */}
-              {selectedLiveFile ? (
-                <div className="flex-1 flex flex-col min-h-0 bg-stone-900/10 dark:bg-black/20 p-4 gap-4 justify-between">
-                  {/* Image viewport */}
-                  <div className="relative flex-1 min-h-0 rounded-xl overflow-hidden border border-border bg-stone-900 flex items-center justify-center group">
-                    <img
-                      src={getDisplayImageUrl(selectedLiveFile.id)}
-                      alt={selectedLiveFile.name}
-                      referrerPolicy="no-referrer"
-                      className="max-w-full max-h-full object-contain"
-                    />
-
-                    {/* Navigation Arrows overlay */}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const currentIndex = displayedFiles.findIndex(f => f.id === selectedLiveFile.id);
-                        if (currentIndex > 0) {
-                          setSelectedLiveFile(displayedFiles[currentIndex - 1]);
-                        } else {
-                          setSelectedLiveFile(displayedFiles[displayedFiles.length - 1]);
-                        }
-                      }}
-                      className="absolute left-2.5 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/60 hover:bg-black/85 text-white/90 hover:text-white transition-all cursor-pointer"
-                      title="Previous Image"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                    </button>
-
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const currentIndex = displayedFiles.findIndex(f => f.id === selectedLiveFile.id);
-                        if (currentIndex !== -1 && currentIndex < displayedFiles.length - 1) {
-                          setSelectedLiveFile(displayedFiles[currentIndex + 1]);
-                        } else {
-                          setSelectedLiveFile(displayedFiles[0]);
-                        }
-                      }}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/60 hover:bg-black/85 text-white/90 hover:text-white transition-all cursor-pointer"
-                      title="Next Image"
-                    >
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  {/* Actions & details metadata */}
-                  <div className="space-y-3 shrink-0 text-left">
-                    <div className="space-y-1">
-                      <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground block">
-                        {language === 'FR' ? "Nom du fichier" : "File Name"}
-                      </span>
-                      <p className="text-[11px] font-mono font-bold text-foreground line-clamp-2 leading-tight">
-                        {selectedLiveFile.name}
-                      </p>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        onClick={(e) => handleCopyImage(selectedLiveFile, e)}
-                        className={cn(
-                          "flex-1 py-1.5 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer border",
-                          copyFeedback[selectedLiveFile.id] === 'IMAGE' 
-                            ? "bg-green-600 border-green-600 text-white" 
-                            : "bg-background border-border text-foreground hover:bg-muted"
-                        )}
-                      >
-                        {copyFeedback[selectedLiveFile.id] === 'IMAGE' ? (
-                          <>
-                            <Check className="w-3 h-3" />
-                            {language === 'FR' ? "Copié" : "Copied"}
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3 h-3" />
-                            {language === 'FR' ? "Copier" : "Copy"}
-                          </>
-                        )}
-                      </button>
-
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedPreviewFile(selectedLiveFile);
-                        }}
-                        className="py-1.5 px-2.5 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center justify-center gap-1 bg-secondary text-secondary-foreground hover:bg-secondary/85 transition-all cursor-pointer border border-transparent"
-                        title="Open Fullscreen View"
-                      >
-                        <Maximize2 className="w-3.5 h-3.5" />
-                      </button>
-
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const url = selectedLiveFile.webViewLink || `https://drive.google.com/open?id=${selectedLiveFile.id}`;
-                          window.open(url, '_blank', 'noreferrer,noopener');
-                        }}
-                        className="py-1.5 px-2 rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center justify-center gap-1 bg-muted text-foreground hover:bg-muted/80 transition-all cursor-pointer border border-border/40"
-                        title="View on Google Drive"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-muted-foreground">
-                  <FileImage className="w-8 h-8 opacity-45 mb-3" />
-                  <p className="text-xs font-semibold">
-                    {language === 'FR' ? "Aucune image sélectionnée" : "No image selected"}
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
         </div>
       )}
 

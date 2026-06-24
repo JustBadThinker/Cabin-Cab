@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, Anchor, Ship, CornerDownLeft, Sparkles, X, Info } from 'lucide-react';
 import { useStore, Boat, Cabin } from '../store';
-import { cn } from '../lib/utils';
+import { cn, matchShortcut } from '../lib/utils';
 
 export const SpotlightSearch: React.FC = () => {
   const { 
@@ -12,7 +12,8 @@ export const SpotlightSearch: React.FC = () => {
     activeTabId, 
     setSelectedBoatName, 
     setSelectedCabinIds,
-    setActiveSectionTab
+    setActiveSectionTab,
+    customShortcuts
   } = useStore();
 
   const activeTab = (tabs.find(t => t.id === activeTabId) || tabs[0] || {}) as any;
@@ -31,8 +32,8 @@ export const SpotlightSearch: React.FC = () => {
   // Toggle Spotlight with Alt + F
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // ALT + F / OPTION + F
-      if (e.altKey && e.key.toLowerCase() === 'f') {
+      const isTrigger = matchShortcut(e, customShortcuts?.toggleSpotlight || 'alt+f');
+      if (isTrigger) {
         e.preventDefault();
         setIsOpen(prev => !prev);
         setQuery('');
