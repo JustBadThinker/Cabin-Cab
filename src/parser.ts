@@ -113,8 +113,12 @@ export function processWorkbookData(rawJsonData: any[][]): Boat[] {
 
   let charterFrIdx = headers.findIndex(h => h === 'charter - french' || (h.includes('charter') && (h.includes('french') || h.includes('français'))));
   let charterEngIdx = headers.findIndex(h => h === 'charter - eng' || (h.includes('charter') && (h.includes('eng') || h.includes('english'))));
-  let departureIdx = headers.findIndex(h => (h.includes('departure') || h.includes('parture') || h.includes('départ')) && !h.includes('freq') && !h.includes('sched'));
-  let scheduleIdx = headers.findIndex(h => h.includes('schedule') || h.includes('horaire') || h.includes('freq') || h.includes('dispo') || h.includes('jours'));
+  let departureIdx = headers.findIndex(h => (h.includes('departure') || h.includes('parture') || h.includes('départ')) && !h.includes('freq') && !h.includes('sched') && !h.includes('eng'));
+  let departureEngIdx = headers.findIndex(h => (h.includes('departure') || h.includes('parture')) && h.includes('eng') && !h.includes('freq') && !h.includes('sched'));
+  let scheduleIdx = headers.findIndex(h => (h.includes('schedule') || h.includes('horaire') || h.includes('freq') || h.includes('dispo') || h.includes('jours')) && !h.includes('eng'));
+  let scheduleEngIdx = headers.findIndex(h => (h.includes('schedule') || h.includes('freq')) && h.includes('eng'));
+  let itineraryIdx = headers.findIndex(h => (h.includes('itinerary') || h.includes('itineraire') || h.includes('itineraires') || h.includes('route')) && !h.includes('eng'));
+  let itineraryEngIdx = headers.findIndex(h => (h.includes('itinerary') || h.includes('route')) && h.includes('eng'));
 
   // Fallback to user specified columns K (10) and L (11) if not found by header
   if (charterFrIdx === -1) charterFrIdx = 10;
@@ -179,6 +183,14 @@ export function processWorkbookData(rawJsonData: any[][]): Boat[] {
 
   const boatsMap = new Map<string, { cabins: Cabin[], charterFr?: string, charterEng?: string }>();
   let lastBoatName = '';
+  let lastItinerary = '';
+  let lastItineraryEng = '';
+  let lastDeparture = '';
+  let lastDepartureEng = '';
+  let lastSchedule = '';
+  let lastScheduleEng = '';
+  let lastCharterFr = '';
+  let lastCharterEng = '';
 
   // Helper to check if a string is a template text format
   const isTemplateText = (text: string): boolean => {
@@ -221,7 +233,7 @@ export function processWorkbookData(rawJsonData: any[][]): Boat[] {
     const findField = (labels: string[], content: string) => {
       const labelPattern = labels.join('|');
       // Look for the label, then capture everything until the next known label or end of string
-      const nextLabels = '(?:Itinéraire|Itinerary|Dates|Départ|Departure|Start|End|Bateau|Boat|Chambre|Room|Cabine|Détails|Details|Detail|Lien|Link|Schedule|Freq)';
+      const nextLabels = '(?:Itinéraire|Itinerary|Dates|Départ|Departure|Start|Bateau|Boat|Chambre|Room|Cabine|Détails|Details|Detail|Lien|Link|Schedule|Freq)';
       // Use a more robust regex that handles the end of the string better
       const regex = new RegExp(`(?:${labelPattern})\\s*[:\\-]?\\s*(.+?)(?=\\s*${nextLabels}\\s*[:\\-]|$)`, 'i');
       const match = content.replace(/\r?\n/g, ' ').match(regex);
@@ -231,7 +243,7 @@ export function processWorkbookData(rawJsonData: any[][]): Boat[] {
     itinerary = findField(['Itinéraire', 'Itinerary'], text);
     if (!itinerary) {
       // If no explicit itinerary label is present, extract the leading text before any known label
-      const nextLabels = '(?:Itinéraire|Itinerary|Dates|Départ|Departure|Start|End|Bateau|Boat|Chambre|Room|Cabine|Détails|Details|Detail|Lien|Link|Schedule|Freq)';
+      const nextLabels = '(?:Itinéraire|Itinerary|Dates|Départ|Departure|Start|Bateau|Boat|Chambre|Room|Cabine|Détails|Details|Detail|Lien|Link|Schedule|Freq)';
       const regexStart = new RegExp(`^(.+?)(?=\\s*${nextLabels}\\s*[:\\-])`, 'i');
       const startMatch = text.replace(/\r?\n/g, ' ').match(regexStart);
       if (startMatch) {
@@ -261,7 +273,21 @@ export function processWorkbookData(rawJsonData: any[][]): Boat[] {
 
   for (let i = 1; i < jsonData.length; i++) {
     const row = jsonData[i];
-    let boatName = String(row[boatIdx] || '').trim();
+    const rawBoatName = String(row[boatIdx] || '').trim();
+    
+    // If a new boat name is explicitly provided in this row, reset the boat-specific last seen variables
+    if (rawBoatName && rawBoatName.toLowerCase() !== lastBoatName.toLowerCase()) {
+      lastItinerary = '';
+      lastItineraryEng = '';
+      lastDeparture = '';
+      lastDepartureEng = '';
+      lastSchedule = '';
+      lastScheduleEng = '';
+      lastCharterFr = '';
+      lastCharterEng = '';
+    }
+
+    let boatName = rawBoatName;
     let cabinName = String(row[cabinIdx] || '').trim();
     let link = String(row[linkIdx === -1 ? -1 : linkIdx] || '').trim();
     
@@ -275,9 +301,9 @@ export function processWorkbookData(rawJsonData: any[][]): Boat[] {
 
     let cabinNameEng = '';
     let linkEng = String(row[linkEngIdx === -1 ? -1 : linkEngIdx] || '').trim();
-    let itineraryEng = '';
-    let departureEng = '';
-    let scheduleEng = '';
+    let itineraryEng = itineraryEngIdx !== -1 ? String(row[itineraryEngIdx] || '').trim() : '';
+    let departureEng = departureEngIdx !== -1 ? String(row[departureEngIdx] || '').trim() : '';
+    let scheduleEng = scheduleEngIdx !== -1 ? String(row[scheduleEngIdx] || '').trim() : '';
 
     if (cabinEngIdx !== -1) {
       const engVal = String(row[cabinEngIdx] || '').trim();
@@ -288,11 +314,21 @@ export function processWorkbookData(rawJsonData: any[][]): Boat[] {
         if (!isLinkValid(linkEng) && isLinkValid(extracted.link)) {
           linkEng = extracted.link;
         }
-        itineraryEng = extracted.itinerary;
-        departureEng = extracted.departure;
-        scheduleEng = extracted.schedule;
+        if (extracted.itinerary) itineraryEng = extracted.itinerary;
+        if (extracted.departure) departureEng = extracted.departure;
+        if (extracted.schedule) scheduleEng = extracted.schedule;
         if (!boatName && extracted.boat) {
           boatName = extracted.boat;
+          if (boatName.toLowerCase() !== lastBoatName.toLowerCase()) {
+            lastItinerary = '';
+            lastItineraryEng = '';
+            lastDeparture = '';
+            lastDepartureEng = '';
+            lastSchedule = '';
+            lastScheduleEng = '';
+            lastCharterFr = '';
+            lastCharterEng = '';
+          }
           lastBoatName = boatName;
         }
       } else {
@@ -300,11 +336,11 @@ export function processWorkbookData(rawJsonData: any[][]): Boat[] {
       }
     }
 
-    let itinerary = '';
-    let departure = String(row[departureIdx] || '').trim();
-    let schedule = String(row[scheduleIdx === -1 ? -1 : scheduleIdx] || '').trim();
-    let charterFr = String(row[charterFrIdx] || '').trim();
-    let charterEng = String(row[charterEngIdx] || '').trim();
+    let itinerary = itineraryIdx !== -1 ? String(row[itineraryIdx] || '').trim() : '';
+    let departure = departureIdx !== -1 ? String(row[departureIdx] || '').trim() : '';
+    let schedule = scheduleIdx !== -1 ? String(row[scheduleIdx] || '').trim() : '';
+    let charterFr = charterFrIdx !== -1 ? String(row[charterFrIdx] || '').trim() : '';
+    let charterEng = charterEngIdx !== -1 ? String(row[charterEngIdx] || '').trim() : '';
 
     // Check if departure is actually a schedule (day of week)
     if (departure && !schedule) {
@@ -331,9 +367,9 @@ export function processWorkbookData(rawJsonData: any[][]): Boat[] {
       const extracted = extractFromTemplate(cabinName);
       if (extracted.cabinName) {
         cabinName = extracted.cabinName;
-        itinerary = extracted.itinerary;
-        if (!departure) departure = extracted.departure;
-        if (!schedule) schedule = extracted.schedule;
+        if (extracted.itinerary) itinerary = extracted.itinerary;
+        if (extracted.departure) departure = extracted.departure;
+        if (extracted.schedule) schedule = extracted.schedule;
         // Prefer template link if dedicated column link is invalid
         if (!isLinkValid(link) && isLinkValid(extracted.link)) {
           link = extracted.link;
@@ -342,9 +378,9 @@ export function processWorkbookData(rawJsonData: any[][]): Boat[] {
         // Fallback: if it's a template but we can't find the cabin name, 
         // use a generic name instead of skipping
         cabinName = `Cabin ${i}`;
-        itinerary = extracted.itinerary;
-        if (!departure) departure = extracted.departure;
-        if (!schedule) schedule = extracted.schedule;
+        if (extracted.itinerary) itinerary = extracted.itinerary;
+        if (extracted.departure) departure = extracted.departure;
+        if (extracted.schedule) schedule = extracted.schedule;
         if (!isLinkValid(link) && isLinkValid(extracted.link)) {
           link = extracted.link;
         }
@@ -353,11 +389,41 @@ export function processWorkbookData(rawJsonData: any[][]): Boat[] {
       // If boatName is missing, try to extract it from the template too
       if (!boatName && extracted.boat) {
         boatName = extracted.boat;
+        if (boatName.toLowerCase() !== lastBoatName.toLowerCase()) {
+          lastItinerary = '';
+          lastItineraryEng = '';
+          lastDeparture = '';
+          lastDepartureEng = '';
+          lastSchedule = '';
+          lastScheduleEng = '';
+          lastCharterFr = '';
+          lastCharterEng = '';
+        }
         lastBoatName = boatName;
       }
     }
 
     if (!boatName) continue;
+
+    // Boat-specific metadata propagation / fallback logic
+    if (!itinerary && lastItinerary) itinerary = lastItinerary;
+    if (!itineraryEng && lastItineraryEng) itineraryEng = lastItineraryEng;
+    if (!departure && lastDeparture) departure = lastDeparture;
+    if (!departureEng && lastDepartureEng) departureEng = lastDepartureEng;
+    if (!schedule && lastSchedule) schedule = lastSchedule;
+    if (!scheduleEng && lastScheduleEng) scheduleEng = lastScheduleEng;
+    if (!charterFr && lastCharterFr) charterFr = lastCharterFr;
+    if (!charterEng && lastCharterEng) charterEng = lastCharterEng;
+
+    // Update the last-seen variables with whatever non-empty values we have now
+    if (itinerary) lastItinerary = itinerary;
+    if (itineraryEng) lastItineraryEng = itineraryEng;
+    if (departure) lastDeparture = departure;
+    if (departureEng) lastDepartureEng = departureEng;
+    if (schedule) lastSchedule = schedule;
+    if (scheduleEng) lastScheduleEng = scheduleEng;
+    if (charterFr) lastCharterFr = charterFr;
+    if (charterEng) lastCharterEng = charterEng;
     
     if (!boatsMap.has(boatName)) {
       boatsMap.set(boatName, { cabins: [] });
