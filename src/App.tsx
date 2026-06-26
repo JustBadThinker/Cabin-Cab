@@ -33,6 +33,8 @@ export default function App() {
     setKicFiles, 
     setLebaliblogFiles,
     livePreviewEnabled,
+    customWidth,
+    setCustomWidth,
     customShortcuts,
     setLanguage,
     setSelectedCabinIds,
@@ -242,11 +244,23 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background text-foreground transition-colors duration-300">
+      <style>{`
+        @media (min-width: 1024px) {
+          .custom-width-container {
+            max-width: ${customWidth}% !important;
+          }
+        }
+        @media (max-width: 1023px) {
+          .custom-width-container {
+            max-width: 95% !important;
+          }
+        }
+      `}</style>
       {/* Header (Not Sticky) */}
       <header className="relative w-full border-b border-border bg-background/80 backdrop-blur-md z-30">
         <div className={cn(
           "mx-auto px-6 h-auto sm:h-20 min-h-[5rem] py-4 sm:py-0 flex flex-col sm:flex-row items-center justify-between gap-4 transition-all duration-500 ease-in-out",
-          livePreviewEnabled ? "max-w-[96%] lg:max-w-[94%] xl:max-w-[92%]" : "max-w-[92%] lg:max-w-[76%] xl:max-w-[70%]"
+          livePreviewEnabled ? "max-w-[96%] lg:max-w-[94%] xl:max-w-[92%]" : "custom-width-container"
         )}>
           <div className="flex items-center gap-3">
             <button 
@@ -322,6 +336,23 @@ export default function App() {
               </button>
             )}
 
+            {!livePreviewEnabled && (
+              <div className="flex items-center gap-2 px-3.5 py-2 bg-muted/60 dark:bg-stone-900/60 rounded-xl border border-border/50 text-xs shadow-sm h-10">
+                <span className="text-[10px] uppercase font-black tracking-wider text-muted-foreground select-none">Width</span>
+                <input
+                  type="range"
+                  min="50"
+                  max="100"
+                  step="5"
+                  value={customWidth}
+                  onChange={(e) => setCustomWidth(Number(e.target.value))}
+                  className="w-16 sm:w-24 h-1 bg-muted-foreground/20 rounded-lg appearance-none cursor-pointer accent-primary focus:outline-none focus:ring-1 focus:ring-ring"
+                  title="Customize layout width"
+                />
+                <span className="text-[10px] font-mono font-bold text-muted-foreground w-8 text-right select-none">{customWidth}%</span>
+              </div>
+            )}
+
             <button
               onClick={() => setShowGuide(true)}
               className="p-2.5 rounded-full bg-muted hover:bg-muted/80 transition-all duration-300 group cursor-pointer flex items-center justify-center shrink-0"
@@ -338,7 +369,7 @@ export default function App() {
       {/* Main Content */}
       <main className={cn(
         "flex-1 mx-auto w-full px-4 sm:px-6 md:px-8 py-12 space-y-16 transition-all duration-500 ease-in-out",
-        livePreviewEnabled ? "max-w-[96%] lg:max-w-[94%] xl:max-w-[92%]" : "max-w-[92%] lg:max-w-[76%] xl:max-w-[70%]"
+        livePreviewEnabled ? "max-w-[96%] lg:max-w-[94%] xl:max-w-[92%]" : "custom-width-container"
       )}>
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 xl:gap-12 transition-all duration-500 ease-in-out">
           {/* Left Column: Configuration */}

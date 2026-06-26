@@ -132,6 +132,8 @@ interface AppState {
   imagesError: string | null;
   livePreviewEnabled: boolean;
   setLivePreviewEnabled: (enabled: boolean) => void;
+  customWidth: number;
+  setCustomWidth: (width: number) => void;
   selectedLiveFile: DriveFile | null;
   setSelectedLiveFile: (file: DriveFile | null) => void;
   displayedFiles: DriveFile[];
@@ -251,6 +253,8 @@ export const useStore = create<AppState>()(
       imagesError: null,
       livePreviewEnabled: false,
       setLivePreviewEnabled: (enabled) => set({ livePreviewEnabled: enabled }),
+      customWidth: 60,
+      setCustomWidth: (width) => set({ customWidth: width }),
       selectedLiveFile: null,
       setSelectedLiveFile: (file) => set({ selectedLiveFile: file }),
       displayedFiles: [],
